@@ -4,24 +4,29 @@ video:
   fps: 30
   bgm: assets/sounds/BGM2-1.wav
   voice: narrator_male
+  transition: crossfade
   subtitle:
     position: bottom
     style:
       fill: "#FFFFFF"
       stroke: "#000000"
       padding: 32
+      background: "#00000080"     # 字幕の背景: 半透明（約50%）の黒
 scenes:
   - id: intro
     image: assets/images/DSC00052.JPG
     duration: 6
     voiceover: >
-      山道からはずっと八ヶ岳が望めます。
+      山道からはずっと八ヶ岳が望めます。ゴールデンウィークごろの八ヶ岳にはまだ残雪があります。飯盛山にはもう雪はありません。
     teletext:
       text: 飯盛山登山道からの八ヶ岳
       position: top_left
       style:
         fill: "#FFE066"
         stroke: "#222222"
+        background: "#1E3A5F"       # 紺色を
+        background_opacity: 0.7     # 不透明度70%で指定
+        background_padding: 20      # 文字の周りの余白(px)
   - id: river
     image: assets/images/DSC00042.JPG
     duration: 5
@@ -29,11 +34,11 @@ scenes:
       text: 春の小川
       position: top_left
       style:
-        fill: "#FFE066"
+        fill: "#FFFFFF"
         stroke: "#222222"
+        background: "#2E7D32B3"     # 緑色。末尾2桁(B3)で約70%の不透明度
     voiceover: >
       雪解け水が小川となって流れています。
-    transition: cut
     voice_override:
       voice: narrator_male
       speed: 0.95
@@ -46,9 +51,10 @@ scenes:
       style:
         fill: "#FFE066"
         stroke: "#222222"
+        background: "#8B1A1A"       # 濃い赤（不透明）
+        background_padding: 24
     voiceover: >
       下山口の近くには国立天文台野辺山があります。
-    transition: cut
     voice_override:
       voice: narrator_male
       speed: 0.95
@@ -59,11 +65,12 @@ scenes:
       text: 電波望遠鏡
       position: top_left
       style:
-        fill: "#FFE066"
-        stroke: "#222222"
+        fill: "#1E3A5F"             # 明るい背景には暗い文字色
+        stroke: null                # 縁取りなし
+        background: white           # 色名でも指定可能
+        background_opacity: 0.8
     voiceover: >
       大きな電波望遠鏡が迎えてくれます。
-    transition: cut
     voice_override:
       voice: narrator_male
       speed: 0.95
