@@ -123,12 +123,15 @@ class Renderer:
         config: AppConfig | None = None,
         settings: RenderSettings | None = None,
         no_voice: bool = False,
+        line_timings: dict[str, list[tuple[float, float]]] | None = None,
     ) -> None:
         self.script = script
         self.config = config
         self.settings = settings or RenderSettings.from_config(config)
         # 音声なしモード（アフレコ用）では音声が無いことを警告しない
         self.no_voice = no_voice
+        # シーンごとの各行の音声が鳴る区間。あれば字幕をナレーションに合わせて表示する
+        self.line_timings = line_timings or {}
         # 書き出したシーンの (シーン, 開始秒, 終了秒, そのシーンへの切り替え)。アフレコ用タイムテーブルに使う
         self.timeline: list[tuple[SceneSpec, float, float, Transition]] = []
 
@@ -348,7 +351,9 @@ class Renderer:
         # subtitle未指定（None）の場合はvoiceoverを使用、空文字列の場合は非表示
         if scene.subtitle is None:
             # subtitleが未指定の場合、voiceoverを字幕として使用
-            subtitle_clips = self._create_subtitle_clip(scene, text=scene.voiceover, window=subtitle_window)
+            subtitle_clips = self._create_subtitle_clip(
+                scene, text=scene.voiceover, window=subtitle_window, timings=self.line_timings.get(scene.id)
+            )
             if subtitle_clips:
                 # 複数行の場合はリストで返される
                 if isinstance(subtitle_clips, list):
@@ -424,11 +429,16 @@ class Renderer:
         return frozen
 
     def _create_subtitle_clip(
-        self, scene: SceneSpec, text: str, window: tuple[float, float] | None = None
+        self,
+        scene: SceneSpec,
+        text: str,
+        window: tuple[float, float] | None = None,
+        timings: list[tuple[float, float]] | None = None,
     ):
         """字幕クリップを作成する。複数行の場合はリストで返す。
 
         windowを指定すると、その区間（シーン内の開始秒, 終了秒）だけに字幕を表示する。
+        timingsに各行の音声が鳴る区間を渡すと、字幕をナレーションに合わせて切り替える。
         """
         try:
             window_start, window_end = window or (0.0, scene.duration)
@@ -493,21 +503,30 @@ class Renderer:
                 # 行間の時間間隔を取得
                 line_interval = self.config.subtitle_line_interval if self.config else 0.0
 
-                # 各行の表示時間を計算
-                # 総間隔時間 = (行数 - 1) × 行間間隔
-                total_interval = (len(lines) - 1) * line_interval
-                # 実際の表示時間 = シーン全体 - 総間隔時間
-                actual_duration = window_length - total_interval
-                # 各行の表示時間は文字数（空白を除く）に比例させる（読み上げの長さに近づけるため）
-                weights = [max(len("".join(line.split())), 1) for line in lines]
-                total_weight = sum(weights)
+                if timings and len(timings) == len(lines):
+                    # 各行の音声が鳴る区間に合わせて表示する（最後の行は区間の終わりまで残す）
+                    spans = [(start, end) for start, end in timings]
+                    spans[-1] = (spans[-1][0], max(spans[-1][1], window_end))
+                    console.log(f"[cyan]字幕をナレーションの各行に合わせて表示します: {scene.id}[/]")
+                else:
+                    # 音声の区切りが分からない場合は、表示区間を文字数（空白を除く）に比例して割り振る
+                    total_interval = (len(lines) - 1) * line_interval
+                    actual_duration = window_length - total_interval
+                    weights = [max(len("".join(line.split())), 1) for line in lines]
+                    total_weight = sum(weights)
+                    spans = []
+                    current = window_start
+                    for weight in weights:
+                        length = actual_duration * weight / total_weight
+                        spans.append((current, current + length))
+                        current += length + line_interval
 
-                if line_interval > 0:
-                    console.log(f"[cyan]行間間隔: {line_interval}秒[/]")
-
-                current_time = window_start
-                for i, line in enumerate(lines):
-                    duration_per_line = actual_duration * weights[i] / total_weight
+                for i, (line, (span_start, span_end)) in enumerate(zip(lines, spans)):
+                    # クロスフェードなどで字幕を出さない区間にかかる部分は削る
+                    current_time = max(span_start, window_start)
+                    duration_per_line = min(span_end, window_end) - current_time
+                    if duration_per_line < 0.05:
+                        continue
                     txt_clip = TextClip(
                         text=line,
                         font=font,
@@ -521,9 +540,6 @@ class Renderer:
 
                     clips.append(txt_clip)
                     console.log(f"[green]  行{i+1}: '{line}' (開始: {current_time:.2f}秒, 長さ: {duration_per_line:.2f}秒)[/]")
-
-                    # 次の行の開始時間 = 現在の行の終了時間 + 行間間隔
-                    current_time += duration_per_line + line_interval
 
                 # 複数のテキストクリップをリストで返す
                 if clips:

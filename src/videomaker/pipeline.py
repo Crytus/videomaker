@@ -104,6 +104,10 @@ class VideoPipeline:
         # 音声なしモードではVoiceboxに接続しない
         client = None if no_voice else self._voice_client()
         audio_map: dict[str, Path] = {}
+        # 1行ずつ合成したシーンの、各行の音声が鳴る区間（シーン内の開始秒, 終了秒）。字幕を音声に合わせるのに使う
+        line_timings: dict[str, list[tuple[float, float]]] = {}
+        margin_before = self.config.voice_margin_before if self.config else 0.0
+        margin_after = self.config.voice_margin_after if self.config else 0.0
         if no_voice:
             console.log("[cyan]音声なしモード: 音声合成を行わず、字幕・テロップのみで作成します[/]")
 
@@ -143,6 +147,14 @@ class VideoPipeline:
                     line_paths.append(
                         client.synthesize(text=line, voice=voice, speed=speed, pitch=pitch)
                     )
+
+                # 各行の音声の長さから、字幕を表示するタイミングを求める
+                line_durations = []
+                for line_audio_path in line_paths:
+                    line_audio = _open_audio(AudioFileClip, line_audio_path, scene.id)
+                    line_durations.append(line_audio.duration)
+                    line_audio.close()
+                line_timings[scene.id] = _line_timings(line_durations, margin_before, line_interval)
 
                 # 結合済み音声は、行ごとの音声ファイルと行間から決まる名前でキャッシュする
                 key_source = "|".join(str(path) for path in line_paths) + f"|{line_interval}"
@@ -199,25 +211,32 @@ class VideoPipeline:
                     pitch=pitch,
                 )
 
-            # durationが未指定の場合、音声ファイルの長さを使用
-            if scene.duration is None:
-                audio_path = audio_map[scene.id]
-                if audio_path.exists():
-                    audio_clip = _open_audio(AudioFileClip, audio_path, scene.id)
-                    base_duration = audio_clip.duration
-                    audio_clip.close()
+            # durationが未指定の場合は音声ファイルの長さを使い、
+            # 指定されていてもナレーションより短い場合は、途中で切れないよう延長する
+            audio_path = audio_map[scene.id]
+            if audio_path.exists():
+                audio_clip = _open_audio(AudioFileClip, audio_path, scene.id)
+                base_duration = audio_clip.duration
+                audio_clip.close()
 
-                    # 無音の時間を追加
-                    margin_before = self.config.voice_margin_before if self.config else 0.0
-                    margin_after = self.config.voice_margin_after if self.config else 0.0
-                    scene.duration = base_duration + margin_before + margin_after
-
+                # 無音の時間を追加
+                needed = base_duration + margin_before + margin_after
+                if scene.duration is None:
+                    scene.duration = needed
                     if margin_before > 0 or margin_after > 0:
                         console.log(f"[cyan]シーン {scene.id} のdurationを音声長から設定: {base_duration:.2f}秒 + 無音 {margin_before:.2f}秒(前) + {margin_after:.2f}秒(後) = {scene.duration:.2f}秒[/]")
                     else:
                         console.log(f"[cyan]シーン {scene.id} のdurationを音声長から設定: {scene.duration:.2f}秒[/]")
+                elif scene.duration < needed - 0.01:
+                    console.log(
+                        f"[yellow]シーン {scene.id} のduration ({scene.duration:.2f}秒) がナレーション"
+                        f"（前後の無音を含めて {needed:.2f}秒）より短いため、{needed:.2f}秒に延長しました[/]"
+                    )
+                    scene.duration = needed
 
-        renderer = Renderer(script, config=self.config, settings=settings, no_voice=no_voice)
+        renderer = Renderer(
+            script, config=self.config, settings=settings, no_voice=no_voice, line_timings=line_timings
+        )
         result = renderer.render(
             output_path=output_path,
             scene_ids=scene_ids,
@@ -318,3 +337,18 @@ def _format_time(seconds: float) -> str:
     """秒数を「分:秒.小数」の表記にする（例: 75.5 -> 1:15.50）。"""
     minutes, sec = divmod(seconds, 60)
     return f"{int(minutes)}:{sec:05.2f}"
+
+
+def _line_timings(
+    durations: list[float], margin_before: float, interval: float
+) -> list[tuple[float, float]]:
+    """1行ずつ合成した音声の長さから、各行が鳴る区間（シーン内の開始秒, 終了秒）を求める。
+
+    結合音声は「前の無音 + 行1 + 行間 + 行2 + ...」の順に並ぶ。
+    """
+    timings = []
+    current = margin_before
+    for duration in durations:
+        timings.append((current, current + duration))
+        current += duration + interval
+    return timings
