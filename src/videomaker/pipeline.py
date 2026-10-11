@@ -14,6 +14,7 @@ from .errors import AssetError, VideoMakerError
 from .models import SceneSpec, VideoScript
 from .renderer import Renderer, RenderSettings
 from .script_parser import parse_script
+from .transitions import TRANSITION_NAMES, Transition
 from .voicebox import VoiceboxClient
 
 console = Console()
@@ -222,7 +223,7 @@ class VideoPipeline:
             audio_map=audio_map,
         )
         if no_voice:
-            self._print_timetable(scene_ids)
+            self._print_timetable(renderer.timeline)
         return result
 
     def _estimate_duration(self, scene: SceneSpec) -> float:
@@ -242,20 +243,23 @@ class VideoPipeline:
         )
         return duration
 
-    def _print_timetable(self, scene_ids: Iterable[str] | None) -> None:
-        """アフレコ用に、各シーンの開始・終了時刻とナレーションを一覧表示する。"""
+    def _print_timetable(self, timeline: list[tuple[SceneSpec, float, float, Transition]]) -> None:
+        """アフレコ用に、各シーンの開始・終了時刻とナレーションを一覧表示する。
+
+        クロスフェードで前後のシーンが重なる場合は、重なった時刻のまま表示する。
+        """
         table = Table(title="アフレコ用タイムテーブル")
         table.add_column("シーン")
         table.add_column("開始", justify="right")
         table.add_column("終了", justify="right")
+        table.add_column("切り替え")
         table.add_column("ナレーション")
-        current = 0.0
-        for scene in self.script.scenes:
-            if scene_ids and scene.id not in scene_ids:
-                continue
-            end = current + (scene.duration or 0.0)
-            table.add_row(scene.id, _format_time(current), _format_time(end), scene.voiceover.strip())
-            current = end
+        for scene, start, end, transition in timeline:
+            if transition.kind == "cut":
+                switch = ""
+            else:
+                switch = f"{TRANSITION_NAMES[transition.kind]} {transition.duration:.2f}秒"
+            table.add_row(scene.id, _format_time(start), _format_time(end), switch, scene.voiceover.strip())
         console.print(table)
 
     def _resolve_image_path(self, image_path: Path) -> Path | None:

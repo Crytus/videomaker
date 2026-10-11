@@ -47,6 +47,7 @@ from rich.console import Console
 from .config import AppConfig
 from .errors import AssetError, RenderError, VideoMakerError
 from .models import SceneSpec, VideoScript
+from .transitions import SpeechSpan, Transition, compose_timeline, plan_transitions
 
 console = Console()
 
@@ -127,6 +128,8 @@ class Renderer:
         self.settings = settings or RenderSettings.from_config(config)
         # 音声なしモード（アフレコ用）では音声が無いことを警告しない
         self.no_voice = no_voice
+        # 書き出したシーンの (シーン, 開始秒, 終了秒, そのシーンへの切り替え)。アフレコ用タイムテーブルに使う
+        self.timeline: list[tuple[SceneSpec, float, float, Transition]] = []
 
     def render(
         self,
@@ -136,14 +139,30 @@ class Renderer:
         audio_map: dict[str, Path],
     ) -> Path:
         scenes = self._select_scenes(scene_ids)
-        clips: list[ImageClip | VideoFileClip] = []
-
         for scene in scenes:
-            clip = self._build_scene_clip(scene, audio_map)
+            if scene.duration is None:
+                raise RenderError(
+                    f"シーン {scene.id} の長さが決まりません",
+                    hint="duration を指定するか、voiceover の音声が生成されるようにしてください。",
+                )
+
+        # 字幕の表示区間を決めるため、クリップを作る前にトランジションを決める
+        plans = plan_transitions(scenes, self.script.video, self._speech_spans(scenes, audio_map))
+        clips: list[VideoClip] = []
+        for i, scene in enumerate(scenes):
+            # クロスフェードで前後のシーンと重なる区間は字幕を出さない
+            next_overlap = plans[i + 1].overlap if i + 1 < len(scenes) else 0.0
+            clip = self._build_scene_clip(
+                scene, audio_map, subtitle_window=(plans[i].overlap, scene.duration - next_overlap)
+            )
             clips.append(clip)
 
-        # 全クリップが同じサイズなので、毎フレーム合成が走る"compose"ではなく"chain"で連結する
-        final = concatenate_videoclips(clips, method="chain")
+        # 毎フレーム合成（"compose"連結）は遅いので、トランジション区間だけ混ぜる独自の連結を使う
+        final, starts = compose_timeline(clips, plans, VideoClip, CompositeAudioClip)
+        self.timeline = [
+            (scene, start, start + clip.duration, plan)
+            for scene, start, clip, plan in zip(scenes, starts, clips, plans)
+        ]
         final = self._apply_bgm(final)
 
         fps = self.settings.fps or self.script.video.fps
@@ -228,12 +247,29 @@ class Renderer:
             )
         return selected
 
-    def _build_scene_clip(self, scene: SceneSpec, audio_map: dict[str, Path]) -> ImageClip | VideoFileClip:
-        if scene.duration is None:
-            raise RenderError(
-                f"シーン {scene.id} の長さが決まりません",
-                hint="duration を指定するか、voiceover の音声が生成されるようにしてください。",
-            )
+    def _speech_spans(self, scenes: list[SceneSpec], audio_map: dict[str, Path]) -> dict[str, SpeechSpan]:
+        """各シーンでナレーションが鳴る区間（シーン内の開始秒, 終了秒）を求める。"""
+        margin_before = self.config.voice_margin_before if self.config else 0.0
+        spans: dict[str, SpeechSpan] = {}
+        for scene in scenes:
+            audio_path = audio_map.get(scene.id)
+            if not audio_path or not audio_path.exists():
+                spans[scene.id] = None
+                continue
+            audio = _load_media(lambda: AudioFileClip(str(audio_path)), scene.id, "音声", audio_path)
+            try:
+                spans[scene.id] = (margin_before, margin_before + audio.duration)
+            finally:
+                audio.close()
+        return spans
+
+    def _build_scene_clip(
+        self,
+        scene: SceneSpec,
+        audio_map: dict[str, Path],
+        subtitle_window: tuple[float, float] | None = None,
+    ) -> VideoClip:
+        """シーンのクリップを作る。subtitle_windowは字幕を表示する区間（シーン内の開始秒, 終了秒）。"""
         if scene.image:
             clip = _load_media(
                 lambda: ImageClip(str(scene.image), duration=scene.duration).resized(
@@ -311,7 +347,7 @@ class Renderer:
         # subtitle未指定（None）の場合はvoiceoverを使用、空文字列の場合は非表示
         if scene.subtitle is None:
             # subtitleが未指定の場合、voiceoverを字幕として使用
-            subtitle_clips = self._create_subtitle_clip(scene, text=scene.voiceover)
+            subtitle_clips = self._create_subtitle_clip(scene, text=scene.voiceover, window=subtitle_window)
             if subtitle_clips:
                 # 複数行の場合はリストで返される
                 if isinstance(subtitle_clips, list):
@@ -320,7 +356,7 @@ class Renderer:
                     overlays.append(subtitle_clips)
         elif scene.subtitle:
             # subtitleが指定されている場合（空文字列でない場合）
-            subtitle_clips = self._create_subtitle_clip(scene, text=scene.subtitle)
+            subtitle_clips = self._create_subtitle_clip(scene, text=scene.subtitle, window=subtitle_window)
             if subtitle_clips:
                 # 複数行の場合はリストで返される
                 if isinstance(subtitle_clips, list):
@@ -386,9 +422,18 @@ class Renderer:
             frozen = frozen.with_audio(clip.audio)
         return frozen
 
-    def _create_subtitle_clip(self, scene: SceneSpec, text: str):
-        """字幕クリップを作成する。複数行の場合はリストで返す。"""
+    def _create_subtitle_clip(
+        self, scene: SceneSpec, text: str, window: tuple[float, float] | None = None
+    ):
+        """字幕クリップを作成する。複数行の場合はリストで返す。
+
+        windowを指定すると、その区間（シーン内の開始秒, 終了秒）だけに字幕を表示する。
+        """
         try:
+            window_start, window_end = window or (0.0, scene.duration)
+            window_length = window_end - window_start
+            if window_length <= 0:
+                return None
             subtitle_config = self.script.video.subtitle
             font = self._resolve_font(subtitle_config.font)
 
@@ -424,8 +469,8 @@ class Renderer:
                     stroke_color=stroke_color if stroke_color else None,
                     stroke_width=stroke_width if stroke_color else 0,
                     size=(self.script.video.width - 200, None),
-                    duration=scene.duration,
-                ).with_position(("center", y_position))
+                    duration=window_length,
+                ).with_position(("center", y_position)).with_start(window_start)
 
                 console.log(f"[green]字幕を作成しました: {scene.id} (font_size={font_size})[/]")
                 return txt_clip
@@ -448,14 +493,14 @@ class Renderer:
                 # 総間隔時間 = (行数 - 1) × 行間間隔
                 total_interval = (len(lines) - 1) * line_interval
                 # 実際の表示時間 = シーン全体 - 総間隔時間
-                actual_duration = scene.duration - total_interval
+                actual_duration = window_length - total_interval
                 # 1行あたりの長さ
                 duration_per_line = actual_duration / len(lines)
 
                 if line_interval > 0:
                     console.log(f"[cyan]行間間隔: {line_interval}秒, 1行あたりの表示時間: {duration_per_line:.2f}秒[/]")
 
-                current_time = 0.0
+                current_time = window_start
                 for i, line in enumerate(lines):
                     txt_clip = TextClip(
                         text=line,

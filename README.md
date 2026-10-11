@@ -395,6 +395,8 @@ options:
 | `voice` | `null` | ナレーションの声（`voicebox_voice_map` の名前、または話者ID） |
 | `bgm` | `null` | BGM ファイル（mp3 / wav など）。動画より短い場合はループ、長い場合は動画の長さでカット。音量は 40% |
 | `output_file` | `null` | 出力ファイル名。`--out` を省略したときに使用 |
+| `transition` | `cut` | シーン切り替えのトランジションの既定値（`cut` / `fade` / `crossfade`。[トランジション](#シーン切り替えのトランジション)参照） |
+| `transition_duration` | `0.5` | トランジションの長さ（秒）の既定値 |
 | `subtitle` | | 字幕の設定（下記） |
 
 #### `video.subtitle`
@@ -428,7 +430,8 @@ options:
 | `subtitle` | | `null` | 字幕の文章。省略時は `voiceover` を字幕にする。`""`（空文字）で字幕なし |
 | `teletext` | | `null` | テロップ（下記） |
 | `voice_override` | | `null` | このシーンだけ声・速度などを変える（下記） |
-| `transition` | | `cut` | `cut` のみ有効（`crossfade` は未実装） |
+| `transition` | | `null` | 前のシーンからこのシーンへ切り替わるときのトランジション（`cut` / `fade` / `crossfade`）。省略時は `video.transition`。最初のシーンでは無視 |
+| `transition_duration` | | `null` | このシーンへのトランジションの長さ（秒）。省略時は `video.transition_duration` |
 | `kenburns` | | `false` | 未実装 |
 
 #### `teletext`（テロップ）
@@ -488,6 +491,35 @@ options:
 - **音声**: config の `subtitle_line_interval` が 0 より大きい場合、1行ずつ音声合成し、行と行の間に `subtitle_line_interval` 秒の無音を入れて結合します。0 の場合はナレーション全体をまとめて合成します。
 - 字幕は横幅（`width` − 200px）を超えると折り返されます。字幕1行が画面に収まる長さで改行するのがおすすめです。
 
+### シーン切り替えのトランジション
+
+`video.transition` で全シーン共通の切り替え方を、`scenes[].transition` でシーンごとの切り替え方を指定します（シーン側が優先）。シーンの `transition` は「前のシーンからそのシーンに入るとき」の切り替え方です。
+
+| 種類 | 見え方 | 動画の長さ |
+|---|---|---|
+| `cut` | 瞬間的に切り替え（既定） | 変わらない |
+| `fade` | 前のシーンが暗くなり、黒を経由して次のシーンが明るくなる。`transition_duration` の前半で暗転、後半で明転 | 変わらない |
+| `crossfade` | 前のシーンの終わりに次のシーンを重ね、溶け込ませる | 重なった分（`transition_duration`）だけ短くなる |
+
+```yaml
+video:
+  transition: fade            # 全シーン共通
+  transition_duration: 0.5
+scenes:
+  - id: s1
+    ...
+  - id: s2
+    transition: crossfade     # s1 → s2 だけクロスフェード
+    transition_duration: 1.0
+  - id: s3
+    transition: cut           # s2 → s3 は瞬間切り替え
+```
+
+- **ナレーションの重なり防止**: `crossfade` では前後のシーンが重なるため、前のシーン末尾の無音＋次のシーン先頭の無音（`voice_margin_before` / `voice_margin_after` や `duration` の余り）を超える長さを指定すると、声が重ならない長さに自動で短縮されます（警告を表示）。無音がほとんど無い場合は `cut` になります。`crossfade` を長めに使う場合は `voice_margin_before` / `voice_margin_after` を大きくしてください。
+- **長さの上限**: トランジションの長さは、前後どちらのシーンの長さの半分も超えないよう自動で短縮されます。
+- **字幕**: `crossfade` で前後のシーンが重なっている間は字幕を表示しません。字幕はシーンの残りの区間で表示されます（複数行の場合も、その区間を行数で分けて順番に表示）。テロップは映像と一緒に溶け込みます。`fade` では字幕も映像と一緒に暗転します。
+- **処理時間**: 混ぜる処理を行うのはトランジションの区間だけなので、書き出し時間はほとんど増えません（1080p/30fps・約10秒の動画で 8.2秒 → 10.0秒）。
+
 ### 音声なしモード（アフレコ用）
 
 ナレーションを後から自分で録音（アフレコ）する場合に、音声合成をせず字幕・テロップだけの動画を作ります。`render` / `preview` / `validate` に `--no-voice` を付けるか、シナリオに `options.no_voice: true` を書くと有効になります。
@@ -503,7 +535,7 @@ videomaker preview story.yaml --no-voice      # -> dist/story_novoice_preview.mp
   - 長さ ＝ max(文字数 ÷ `no_voice_chars_per_second`, `no_voice_min_duration`) ＋ 行間（(行数−1) × `subtitle_line_interval`） ＋ `voice_margin_before` ＋ `voice_margin_after`
   - 文字数には空白を含みません。読む速さに合わせて `no_voice_chars_per_second` を調整するか、シーンごとに `duration` を指定してください。
 - BGM は通常どおり合成されます。
-- 書き出し後に、アフレコ用のタイムテーブル（各シーンの開始・終了時刻とナレーション）が表示されます。
+- 書き出し後に、アフレコ用のタイムテーブル（各シーンの開始・終了時刻、切り替え方、ナレーション）が表示されます。`crossfade` で重なるシーンは、重なった時刻のまま表示されます（例: 前のシーンが 0:03.50 に終わり、次のシーンが 0:02.50 に始まる）。
 
 ### 音声キャッシュ
 
@@ -556,7 +588,7 @@ videomaker preview story.yaml --no-voice      # -> dist/story_novoice_preview.mp
 
 ## 既知の制限・未実装の項目
 
-- `transition: crossfade`、`kenburns`、`style.background`、`options` の `subtitle_format` / `keep_temp` / `workers` は、設定は受け付けますが動作には反映されません。
+- `kenburns`、`style.background`、`options` の `subtitle_format` / `keep_temp` / `workers` は、設定は受け付けますが動作には反映されません。
 - テロップの `position` が `top_right` / `bottom_left` / `bottom_right` の場合、文字の左上が画面の右端・下端付近に置かれるため、テロップが画面外にはみ出します。現状は `top_left` または `center` を使ってください。
 - config の `subtitle_color` などの色設定は使われていません（シナリオの `style` で指定）。
 - 複数行字幕の各行の表示時間は等分のため、行ごとの音声の長さとは厳密には一致しません。
@@ -567,6 +599,7 @@ videomaker preview story.yaml --no-voice      # -> dist/story_novoice_preview.mp
 
 ### 2026-10
 
+- **シーン切り替えのトランジションを追加**: `video.transition` / `scenes[].transition` で `cut` / `fade` / `crossfade` を指定できるようにした。クロスフェードはナレーションが重ならない長さに自動で短縮し、重なる区間は字幕を表示しない。トランジション区間だけフレームを混ぜる方式で、書き出し速度をほぼ維持。シーンより長い音声が次のシーンに食い込まないよう切り詰めるようにした。
 - **音声なしモードを追加（アフレコ用）**: `--no-voice` または `options.no_voice: true` で、音声合成をせず字幕・テロップのみの動画を作る。シーンの長さは文字数から見積もり（`no_voice_chars_per_second` / `no_voice_min_duration`）、書き出し後にアフレコ用タイムテーブルを表示する。
 - **エラーメッセージの改善**: ファイルの不足、YAML・設定値の誤り、VOICEVOX の接続失敗・タイムアウト、素材の読み込みや書き出しの失敗を、トレースバックではなく原因と対処のヒントで表示するようにした。`--debug` で詳細を表示できる。
 - **プレビューモードを追加**: `videomaker preview`（全シーン/複数シーン対応）と `render --preview`。低解像度・低fps・高速エンコード設定で内容を素早く確認できる。`--fps` / `--scale` で調整可能。

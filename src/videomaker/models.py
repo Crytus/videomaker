@@ -8,6 +8,11 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field, model_validator, validator
 
 
+# シーン切り替えのトランジション種別
+# cut: 瞬間切り替え / fade: 黒を経由して切り替え / crossfade: 前のシーンに重ねて溶け込ませる
+TransitionType = Literal["cut", "fade", "crossfade"]
+
+
 class SubtitleStyle(BaseModel):
     """字幕・テロップのスタイル定義。"""
 
@@ -89,7 +94,12 @@ class SceneSpec(BaseModel):
     voiceover: str
     subtitle: Optional[str] = None
     teletext: Optional[TeletextConfig] = None
-    transition: Literal["cut", "crossfade"] = "cut"
+    transition: Optional[TransitionType] = Field(
+        None, description="前のシーンからこのシーンへ切り替わるときのトランジション。未指定ならvideo.transition"
+    )
+    transition_duration: Optional[float] = Field(
+        None, gt=0, description="トランジションの長さ（秒）。未指定ならvideo.transition_duration"
+    )
     kenburns: bool = False
     voice_override: Optional[VoiceOverride] = None
 
@@ -157,6 +167,8 @@ class VideoSpec(BaseModel):
         None, description="Voiceboxのプリセット名"
     )
     subtitle: SubtitleConfig = Field(default_factory=SubtitleConfig)
+    transition: TransitionType = Field("cut", description="シーン切り替えのトランジション（全シーン共通の既定値）")
+    transition_duration: float = Field(0.5, gt=0, description="トランジションの長さ（秒）の既定値")
     output_file: Optional[Path] = Field(
         None, description="出力ファイル名（省略時はスクリプト名から自動生成）"
     )
