@@ -60,3 +60,7 @@ voice_volume: 1.0  # ナレーション音量（1.0が100%、0.0～2.0の範囲�
 # プレビューモード（videomaker preview / render --preview）
 # preview_scale: 0.5    # 解像度の倍率（1920x1080 -> 960x540）
 # preview_fps: 10       # フレームレート
+
+# 音声なしモード（--no-voice、アフレコ用）。durationを省略したシーンの長さを文字数から見積もる
+# no_voice_chars_per_second: 6.0  # 読み上げ速度（1秒あたりの文字数）
+# no_voice_min_duration: 2.0      # シーンの長さの最小値（秒）

@@ -45,6 +45,14 @@ class AppConfig(BaseModel):
     voice_margin_before: float = Field(0.0, ge=0.0, description="音声の前に追加する無音時間（秒）")
     voice_margin_after: float = Field(0.0, ge=0.0, description="音声の後に追加する無音時間（秒）")
 
+    # 音声なしモード（アフレコ用）の設定
+    no_voice_chars_per_second: float = Field(
+        6.0, gt=0.0, description="音声なしモードでdurationを見積もる読み上げ速度（1秒あたりの文字数）"
+    )
+    no_voice_min_duration: float = Field(
+        2.0, gt=0.0, description="音声なしモードで見積もるシーン長の最小値（秒）"
+    )
+
     # エンコード設定
     video_encoder: str = Field(
         "auto",

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Iterable
 
 from rich.console import Console
+from rich.table import Table
 
 from .config import AppConfig
 from .errors import AssetError, VideoMakerError
@@ -27,11 +28,18 @@ class VideoPipeline:
         *,
         config: AppConfig,
         override_voice_cache: Path | None = None,
+        no_voice: bool = False,
     ) -> None:
         self.script_path = script_path
         self.config = config
         self.override_voice_cache = override_voice_cache
+        self._no_voice = no_voice
         self._script: VideoScript | None = None
+
+    @property
+    def no_voice(self) -> bool:
+        """音声なしモードか（CLIの--no-voice または スクリプトのoptions.no_voice）。"""
+        return self._no_voice or self.script.options.no_voice
 
     @property
     def script(self) -> VideoScript:
@@ -72,6 +80,9 @@ class VideoPipeline:
                 hint="スクリプトのパス指定（スクリプトファイルからの相対パス）や、config.yamlのimage_dirを確認してください。",
             )
 
+        if self.no_voice:
+            console.log("[cyan]音声なしモードのため、Voiceboxの疎通確認をスキップします[/]")
+            return
         client = self._voice_client()
         if not client.healthcheck():
             console.log("[yellow]Voiceboxヘルスチェックに失敗しました[/]")
@@ -87,8 +98,12 @@ class VideoPipeline:
     ) -> Path:
         """レンダリングを実行する。"""
         script = self.script
-        client = self._voice_client()
+        no_voice = self.no_voice
+        # 音声なしモードではVoiceboxに接続しない
+        client = None if no_voice else self._voice_client()
         audio_map: dict[str, Path] = {}
+        if no_voice:
+            console.log("[cyan]音声なしモード: 音声合成を行わず、字幕・テロップのみで作成します[/]")
 
         # AudioClipのインポート
         try:
@@ -104,7 +119,11 @@ class VideoPipeline:
         for scene in script.scenes:
             if scene_ids and scene.id not in scene_ids:
                 continue
-            voice = scene.voice_override.voice if scene.voice_override else script.video.voice
+            if no_voice:
+                if scene.duration is None:
+                    scene.duration = self._estimate_duration(scene)
+                continue
+            voice =scene.voice_override.voice if scene.voice_override else script.video.voice
             speed = scene.voice_override.speed if scene.voice_override else None
             pitch = scene.voice_override.pitch if scene.voice_override else None
 
@@ -196,12 +215,48 @@ class VideoPipeline:
                     else:
                         console.log(f"[cyan]シーン {scene.id} のdurationを音声長から設定: {scene.duration:.2f}秒[/]")
 
-        renderer = Renderer(script, config=self.config, settings=settings)
-        return renderer.render(
+        renderer = Renderer(script, config=self.config, settings=settings, no_voice=no_voice)
+        result = renderer.render(
             output_path=output_path,
             scene_ids=scene_ids,
             audio_map=audio_map,
         )
+        if no_voice:
+            self._print_timetable(scene_ids)
+        return result
+
+    def _estimate_duration(self, scene: SceneSpec) -> float:
+        """音声なしモードで、ナレーションの文字数からシーン長を見積もる。
+
+        音声ありの場合と同じく、行間の間隔と前後の無音（voice_margin_*）も加える。
+        """
+        lines = [line.strip() for line in scene.voiceover.split("\n") if line.strip()]
+        # 空白は読み上げ時間に含めない
+        chars = sum(len("".join(line.split())) for line in lines)
+        speech = max(chars / self.config.no_voice_chars_per_second, self.config.no_voice_min_duration)
+        interval = max(len(lines) - 1, 0) * self.config.subtitle_line_interval
+        margin = self.config.voice_margin_before + self.config.voice_margin_after
+        duration = speech + interval + margin
+        console.log(
+            f"[cyan]シーン {scene.id} のdurationを文字数から見積もり: {chars}文字 -> {duration:.2f}秒[/]"
+        )
+        return duration
+
+    def _print_timetable(self, scene_ids: Iterable[str] | None) -> None:
+        """アフレコ用に、各シーンの開始・終了時刻とナレーションを一覧表示する。"""
+        table = Table(title="アフレコ用タイムテーブル")
+        table.add_column("シーン")
+        table.add_column("開始", justify="right")
+        table.add_column("終了", justify="right")
+        table.add_column("ナレーション")
+        current = 0.0
+        for scene in self.script.scenes:
+            if scene_ids and scene.id not in scene_ids:
+                continue
+            end = current + (scene.duration or 0.0)
+            table.add_row(scene.id, _format_time(current), _format_time(end), scene.voiceover.strip())
+            current = end
+        console.print(table)
 
     def _resolve_image_path(self, image_path: Path) -> Path | None:
         """画像ファイルのパスを解決する。存在しない場合はimage_dirから検索。"""
@@ -252,3 +307,9 @@ def _open_audio(audio_file_clip, path: Path, scene_id: str):
             f"シーン {scene_id} の音声ファイルを読み込めません: {path} ({exc})",
             hint="音声キャッシュが壊れている可能性があります。`videomaker clear` でキャッシュを削除して再実行してください。",
         ) from exc
+
+
+def _format_time(seconds: float) -> str:
+    """秒数を「分:秒.小数」の表記にする（例: 75.5 -> 1:15.50）。"""
+    minutes, sec = divmod(seconds, 60)
+    return f"{int(minutes)}:{sec:05.2f}"

@@ -77,12 +77,14 @@ def _build_pipeline(
     *,
     config_path: Optional[Path],
     voice_cache: Optional[Path],
+    no_voice: bool = False,
 ) -> VideoPipeline:
     app_config: AppConfig = load_config(config_path)
     return VideoPipeline(
         script_path=script,
         config=app_config,
         override_voice_cache=voice_cache,
+        no_voice=no_voice,
     )
 
 
@@ -113,9 +115,15 @@ def _default_output(pipeline: VideoPipeline, script: Path, *, preview: bool) -> 
         # スクリプトファイル名から生成（story.yaml -> story.mp4）
         output_path = Path("dist") / f"{script.stem}.mp4"
         console.log(f"[cyan]スクリプト名から出力ファイル名を生成: {output_path}[/]")
+    if pipeline.no_voice:
+        # 音声ありの書き出し結果を上書きしないよう別名にする
+        output_path = output_path.with_name(f"{output_path.stem}_novoice{output_path.suffix}")
     if preview:
         output_path = output_path.with_name(f"{output_path.stem}_preview{output_path.suffix}")
     return output_path
+
+
+NO_VOICE_HELP = "音声を合成せず、字幕・テロップのみの動画を作る（アフレコ用）"
 
 
 @app.command(help="スクリプトと素材を検証します")
@@ -126,8 +134,9 @@ def validate(
     voice_cache: Optional[Path] = typer.Option(
         None, "--voice-cache", help="音声キャッシュディレクトリ"
     ),
+    no_voice: bool = typer.Option(False, "--no-voice", help=NO_VOICE_HELP),
 ) -> None:
-    pipeline = _build_pipeline(script, config_path=config, voice_cache=voice_cache)
+    pipeline = _build_pipeline(script, config_path=config, voice_cache=voice_cache, no_voice=no_voice)
     pipeline.validate()
     console.print("[green]検証が完了しました[/]")
 
@@ -151,8 +160,9 @@ def render(
     voice_cache: Optional[Path] = typer.Option(
         None, "--voice-cache", help="音声キャッシュディレクトリ"
     ),
+    no_voice: bool = typer.Option(False, "--no-voice", help=NO_VOICE_HELP),
 ) -> None:
-    pipeline = _build_pipeline(script, config_path=config, voice_cache=voice_cache)
+    pipeline = _build_pipeline(script, config_path=config, voice_cache=voice_cache, no_voice=no_voice)
     pipeline.validate()
     output_path = output or _default_output(pipeline, script, preview=preview)
     settings = _build_settings(pipeline, preview=preview, encoder=encoder, fps=fps, scale=scale)
@@ -177,8 +187,9 @@ def preview(
     voice_cache: Optional[Path] = typer.Option(
         None, "--voice-cache", help="音声キャッシュディレクトリ"
     ),
+    no_voice: bool = typer.Option(False, "--no-voice", help=NO_VOICE_HELP),
 ) -> None:
-    pipeline = _build_pipeline(script, config_path=config, voice_cache=voice_cache)
+    pipeline = _build_pipeline(script, config_path=config, voice_cache=voice_cache, no_voice=no_voice)
     pipeline.validate()
     output_path = output or _default_output(pipeline, script, preview=True)
     settings = _build_settings(pipeline, preview=True, encoder=encoder, fps=fps, scale=scale)

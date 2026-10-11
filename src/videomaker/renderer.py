@@ -120,10 +120,13 @@ class Renderer:
         script: VideoScript,
         config: AppConfig | None = None,
         settings: RenderSettings | None = None,
+        no_voice: bool = False,
     ) -> None:
         self.script = script
         self.config = config
         self.settings = settings or RenderSettings.from_config(config)
+        # 音声なしモード（アフレコ用）では音声が無いことを警告しない
+        self.no_voice = no_voice
 
     def render(
         self,
@@ -298,7 +301,7 @@ class Renderer:
                 voice = concatenate_audioclips(audio_clips)
 
             clip = clip.with_audio(voice)
-        else:
+        elif not self.no_voice:
             console.log(f"[yellow]音声が見つかりません: {scene.id}[/]")
 
         # テキストオーバーレイを追加

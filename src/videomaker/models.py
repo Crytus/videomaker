@@ -185,6 +185,9 @@ class Options(BaseModel):
     """CLIオプションからも上書きされる実行時設定。"""
 
     voice_cache_dir: Path = Path(".cache/voice")
+    no_voice: bool = Field(
+        False, description="trueで音声合成を行わず、字幕・テロップのみの動画を作る（アフレコ用）"
+    )
     subtitle_format: Literal["burn", "srt"] = "burn"
     keep_temp: bool = False
     workers: int = Field(1, ge=1, le=8)

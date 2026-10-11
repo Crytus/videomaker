@@ -12,6 +12,7 @@ YAMLで書いたシナリオから、静止画・動画素材にナレーショ�
 - テロップ（シーンの見出し）の表示、動画素材シーンの挿入
 - BGM の合成（動画より短い BGM は自動でループ）
 - 低解像度・低fpsで素早く内容を確認できるプレビューモード
+- 音声を合成せず字幕・テロップだけで作る音声なしモード（アフレコ用）
 - NVIDIA GPU（NVENC）によるハードウェアエンコード
 
 ---
@@ -157,7 +158,15 @@ videomaker render pylori1.yaml           # -> dist/pylori1.mp4
 
 ### `videomaker validate SCRIPT`
 
-シナリオの構文、素材ファイル（画像・動画・BGM・フォント）の存在、音声合成サーバーとの疎通を確認します。サーバーに接続できない場合は警告だけを表示します。
+シナリオの構文、素材ファイル（画像・動画・BGM・フォント）の存在、音声合成サーバーとの疎通を確認します。サーバーに接続できない場合は警告だけを表示します。`--no-voice` を付けると（またはシナリオで `options.no_voice: true` のとき）疎通確認を省略します。
+
+### 共通オプション
+
+| オプション | 説明 |
+|---|---|
+| `--debug` | エラー発生時にトレースバック（詳細情報）も表示する。コマンド名の前に指定する（例: `videomaker --debug render story.yaml`） |
+
+通常、ファイルの不足・YAMLの書式ミス・タイムアウトなどのエラーは、原因と対処のヒントだけを表示して終了します（終了コード 1）。
 
 ### `videomaker render SCRIPT`
 
@@ -173,6 +182,7 @@ videomaker render pylori1.yaml           # -> dist/pylori1.mp4
 | `--scale X` | 出力解像度の倍率を上書き（0.1〜1.0。例: 0.5 で 1920x1080 → 960x540） |
 | `--config PATH` | 設定ファイルを指定（省略時はカレントディレクトリの `config.yaml`） |
 | `--voice-cache DIR` | 音声キャッシュのディレクトリを指定 |
+| `--no-voice` | 音声なしモード。音声を合成せず、字幕・テロップのみで書き出す（[音声なしモード](#音声なしモードアフレコ用)参照。出力名の既定は `<名前>_novoice.mp4`） |
 
 ### `videomaker preview SCRIPT`
 
@@ -184,7 +194,7 @@ videomaker render pylori1.yaml           # -> dist/pylori1.mp4
 | `--out PATH` | 出力先。省略時は `dist/<スクリプト名>_preview.mp4` |
 | `--fps N` | フレームレート（既定: config の `preview_fps`） |
 | `--scale X` | 解像度の倍率（既定: config の `preview_scale`） |
-| `--encoder`, `--config`, `--voice-cache` | `render` と同じ |
+| `--encoder`, `--config`, `--voice-cache`, `--no-voice` | `render` と同じ |
 
 例:
 
@@ -272,6 +282,8 @@ voicebox_reading_map:
 | `voice_volume` | `1.0` | ナレーションの音量（0.0〜2.0、1.0 が 100%）。シーンの `voice_override.volume` が優先 |
 | `voice_margin_before` | `0.0` | ナレーションの前に入れる無音（秒） |
 | `voice_margin_after` | `0.0` | ナレーションの後に入れる無音（秒） |
+| `no_voice_chars_per_second` | `6.0` | 音声なしモードでシーンの長さを見積もるときの読み上げ速度（1秒あたりの文字数） |
+| `no_voice_min_duration` | `2.0` | 音声なしモードで見積もるシーンの長さの最小値（秒） |
 
 ### エンコード・プレビューの設定
 
@@ -443,6 +455,7 @@ options:
 | キー | 既定値 | 説明 |
 |---|---|---|
 | `voice_cache_dir` | `.cache/voice` | 音声キャッシュの保存先（`--voice-cache` が優先） |
+| `no_voice` | `false` | `true` で音声なしモード（アフレコ用）。`--no-voice` と同じ |
 | `subtitle_format` | `burn` | 未実装（字幕は常に映像に焼き込み） |
 | `keep_temp` | `false` | 未実装 |
 | `workers` | `1` | 未実装 |
@@ -474,6 +487,23 @@ options:
 - **字幕**: 1行ずつ順番に表示されます（`subtitle` を指定した場合は `subtitle` の行が対象）。各行の表示時間は、シーンの長さから行間の時間を引いて行数で等分したものです。1行の字幕はシーン全体で表示されます。
 - **音声**: config の `subtitle_line_interval` が 0 より大きい場合、1行ずつ音声合成し、行と行の間に `subtitle_line_interval` 秒の無音を入れて結合します。0 の場合はナレーション全体をまとめて合成します。
 - 字幕は横幅（`width` − 200px）を超えると折り返されます。字幕1行が画面に収まる長さで改行するのがおすすめです。
+
+### 音声なしモード（アフレコ用）
+
+ナレーションを後から自分で録音（アフレコ）する場合に、音声合成をせず字幕・テロップだけの動画を作ります。`render` / `preview` / `validate` に `--no-voice` を付けるか、シナリオに `options.no_voice: true` を書くと有効になります。
+
+```powershell
+videomaker render story.yaml --no-voice       # -> dist/story_novoice.mp4
+videomaker preview story.yaml --no-voice      # -> dist/story_novoice_preview.mp4
+```
+
+- VOICEVOX は不要です（接続しません）。音声キャッシュも作りません。
+- `voiceover` は字幕として表示されます（`subtitle` を指定した場合はそちら）。複数行の場合は音声ありと同様に1行ずつ表示されます。
+- `duration` を省略したシーンは、ナレーションの文字数から長さを見積もります。
+  - 長さ ＝ max(文字数 ÷ `no_voice_chars_per_second`, `no_voice_min_duration`) ＋ 行間（(行数−1) × `subtitle_line_interval`） ＋ `voice_margin_before` ＋ `voice_margin_after`
+  - 文字数には空白を含みません。読む速さに合わせて `no_voice_chars_per_second` を調整するか、シーンごとに `duration` を指定してください。
+- BGM は通常どおり合成されます。
+- 書き出し後に、アフレコ用のタイムテーブル（各シーンの開始・終了時刻とナレーション）が表示されます。
 
 ### 音声キャッシュ
 
@@ -515,7 +545,10 @@ options:
 | 長いナレーションで音声合成がタイムアウトする | `voicebox_timeout` を大きくする（例: 120） |
 | 漢字の読みが間違っている | `voicebox_reading_map` に正しい読みを登録 |
 | 字幕が表示されない・文字化けする | 日本語フォントを `default_font` または `video.subtitle.font` に設定 |
-| `素材チェックに失敗しました` | 表示されたファイルのパスを確認（[ファイルパスの解決](#ファイルパスの解決)参照） |
+| `素材ファイルが見つかりません` | 表示されたファイルのパスを確認（[ファイルパスの解決](#ファイルパスの解決)参照） |
+| `YAML形式が不正です` | 表示された行・列付近のインデントや `キー: 値` の書き方を確認 |
+| `予期しないエラーが発生しました` | `videomaker --debug render ...` で詳細を表示して原因を確認 |
+| VOICEVOX を使わずに字幕だけの動画を作りたい | `--no-voice`（[音声なしモード](#音声なしモードアフレコ用)参照） |
 | GPU を使わずに書き出したい | `--encoder cpu` または config で `video_encoder: cpu` |
 | 書き出しが遅い | まず `videomaker preview` で内容を確認し、最後に `render` する |
 
@@ -534,6 +567,8 @@ options:
 
 ### 2026-10
 
+- **音声なしモードを追加（アフレコ用）**: `--no-voice` または `options.no_voice: true` で、音声合成をせず字幕・テロップのみの動画を作る。シーンの長さは文字数から見積もり（`no_voice_chars_per_second` / `no_voice_min_duration`）、書き出し後にアフレコ用タイムテーブルを表示する。
+- **エラーメッセージの改善**: ファイルの不足、YAML・設定値の誤り、VOICEVOX の接続失敗・タイムアウト、素材の読み込みや書き出しの失敗を、トレースバックではなく原因と対処のヒントで表示するようにした。`--debug` で詳細を表示できる。
 - **プレビューモードを追加**: `videomaker preview`（全シーン/複数シーン対応）と `render --preview`。低解像度・低fps・高速エンコード設定で内容を素早く確認できる。`--fps` / `--scale` で調整可能。
 - **書き出しの高速化**: 静止画シーンを字幕の切り替わり区間ごとに1回だけ合成するように変更し、シーンの連結方法も見直した（1080p/30fps で約 8分24秒 → 約 1分）。
 - **GPU エンコード（NVENC）に対応**: `video_encoder`（`auto` / `cpu` / `nvenc`）、`video_preset`、`video_quality` を追加。`auto` では NVENC が使えるか自動判定する。
