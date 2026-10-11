@@ -1,0 +1,92 @@
+video:
+  width: 1920
+  height: 1080
+  fps: 30
+  bgm: assets/sounds/BGM2-1.wav
+  voice: narrator_male
+  subtitle:
+    position: bottom
+    style:
+      fill: "#FFFFFF"
+      stroke: "#000000"
+      padding: 32
+scenes:
+  - id: intro
+    image: output/scene_f164c14d-07a3-471b-b936-c5b4edda04b6.png
+    voiceover: >
+      毎日がんばっているあなたへ。
+      会社へ向かう電車の中で、
+      ふと窓に映る自分の表情を見た瞬間。
+      その目には、何が映っているだろうか。
+    teletext:
+      text: 毎日、がんばっているあなたへ
+      position: top_left
+      style:
+        fill: "#FFE066"
+        stroke: "#222222"
+  - id: river
+    image: output/scene_0aecfc5e-c09c-421a-98ff-3c0c12530ef6.png
+    teletext:
+      text: 落ち込んでいく心
+      position: top_left
+      style:
+        fill: "#FFE066"
+        stroke: "#222222"
+    voiceover: >
+      ふとした瞬間に、ふと落ち込み、
+      何もやる気が起きなくなる。
+      そんな日が続きませんか？
+      好きな趣味でも、かえって疲労感が増す。
+      楽しいはずの時間なのに、気分は一向に晴れない。
+      うつ病は、ただの「気の持ちよう」や
+      「心の弱さ」ではありません。
+      脳の機能に何らかのトラブルが生じ、
+      心と身体に具体的な症状が現れる、
+      医学的に証明された病気です。
+    transition: cut
+    voice_override:
+      voice: narrator_male
+      speed: 0.95
+  - id: tenmondai
+    image: output/scene_b4ca6cb5-7019-4064-8d8d-832bd220d825.png
+    teletext:
+      text: 心の症状 — 楽しみを感じられない、気分が晴れない
+      position: top_left
+      style:
+        fill: "#FFE066"
+        stroke: "#222222"
+    voiceover: >
+      うつ病には大きく分けて「心の症状」と
+      「身体の症状」が現れます。
+      まず心の症状。
+      第一に、「楽しんだり喜びを感じたりできない」
+      状態が続き、好きな趣味や活動でも、
+      かえって疲労感が増してしまいます。
+      第二に、何か良いことが起きたとしても、
+      気分が一向に晴れない。
+      不安や焦燥感が消えない。
+      「自分は何してもだめだ」という
+      自己否定感が強くなります。
+    transition: cut
+    voice_override:
+      voice: narrator_male
+      speed: 0.95
+  - id: antena
+    image: output/scene_301e28ba-45b5-4762-a7e0-03bd427c9199.png
+    teletext:
+      text: 身体の症状 — 不眠、食欲の変化、強い疲労感
+      position: top_left
+      style:
+        fill: "#FFE066"
+        stroke: "#222222"
+    voiceover: >
+      第三に、不眠が代表的です。寝つきが悪くなる。夜中に何度も目が覚める。朝早く目が覚めて、それから眠れなくなる。厚生労働省の「こころの耳」によると、寝つきに30分以上かかる、熟睡感がなくなる、などに気づいたら、うつ病のサインかもしれません。
+    transition: cut
+    voice_override:
+      voice: narrator_male
+      speed: 0.95
+options:
+  voice_cache_dir: .cache/voice
+  subtitle_format: burn
+  keep_temp: false
+  workers: 1

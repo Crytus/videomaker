@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "videomaker"
+version = "0.1.0"
+description = "Text-driven slideshow/voiceover video generator"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+  { name = "VideoMaker Dev Team" }
+]
+dependencies = [
+  "typer>=0.9",
+  "pydantic>=2.6",
+  "pyyaml>=6.0",
+  "requests>=2.31",
+  "rich>=13.7",
+  "moviepy>=2.0",
+  "Pillow>=10.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7.4",
+  "pytest-mock>=3.12",
+  "mypy>=1.7",
+  "ruff>=0.1.11"
+]
+
+[project.scripts]
+videomaker = "videomaker.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["tests"]

@@ -1,0 +1,27 @@
+video:
+  width: 1920
+  height: 1080
+  fps: 30
+  voice: narrator_female
+  subtitle:
+    position: bottom
+    style:
+      fill: "#FFFFFF"
+      stroke: "#000000"
+      padding: 32
+scenes:
+  - id: multiline_subtitle
+    image: DSC00052.JPG
+    # subtitleを省略すると、voiceoverが字幕として使用される
+    # voiceoverが複数行の場合は、行ごとに分けて表示される
+    voiceover: |
+      春の山道には雪解け水が流れ、
+      小鳥の声が響きます。
+      谷を抜ける風が、澄んだ川面を揺らします。
+    # subtitle: を指定しないため、voiceoverが複数行字幕として表示される
+
+options:
+  voice_cache_dir: .cache/voice
+  subtitle_format: burn
+  keep_temp: false
+  workers: 1

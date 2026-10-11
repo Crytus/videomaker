@@ -1,0 +1,62 @@
+# Generic mode (custom Voicebox API)
+voicebox_url: http://127.0.0.1:9000/api/tts
+voicebox_health_url: null
+voicebox_mode: generic
+voicebox_voice_map: {}
+voicebox_token: null
+voicebox_timeout: 30  # Voicebox API呼び出しのタイムアウト（秒）。長文で失敗する場合は大きくする
+# 音声合成時の読み替え（漢字の読み間違い訂正用）。字幕の表示には影響しません
+# 長い語が優先して置換されます
+# 例:
+# voicebox_reading_map:
+#   方: かた
+#   行方: ゆくえ
+voicebox_reading_map: {}
+ffmpeg_path: null
+default_font: assets/fonts/msgothic.ttc
+image_dir: assets/images
+
+# 字幕のデフォルト設定
+subtitle_font_size: 48
+subtitle_color: "#FFFFFF"
+subtitle_stroke_color: "#000000"
+subtitle_stroke_width: 2
+
+# テロップのデフォルト設定
+teletext_font_size: 60
+teletext_color: "#FFE066"
+teletext_stroke_color: "#222222"
+teletext_stroke_width: 3
+
+# 音声のデフォルト設定
+voice_volume: 1.0  # ナレーション音量（1.0が100%、0.0～2.0の範囲）
+
+# VOICEVOX mode example (uncomment and modify as needed)
+# voicebox_mode: voicevox
+# voicebox_url: http://127.0.0.1:50021
+# voicebox_health_url: http://127.0.0.1:50021/speakers
+# voicebox_token: null
+# voicebox_voice_map:
+#   narrator_female: "3"
+#   narrator_male: "1"
+# ffmpeg_path: null
+# default_font: assets/fonts/msgothic.ttc
+# image_dir: assets/images
+# subtitle_font_size: 48
+# subtitle_color: "#FFFFFF"
+# subtitle_stroke_color: "#000000"
+# subtitle_stroke_width: 2
+# teletext_font_size: 60
+# teletext_color: "#FFE066"
+# teletext_stroke_color: "#222222"
+# teletext_stroke_width: 3
+# voice_volume: 1.0
+
+# エンコード設定
+# video_encoder: auto   # auto（NVENCが使えればGPU）/ cpu（libx264）/ nvenc（h264_nvenc）/ ffmpegのコーデック名
+# video_preset: null    # 未指定なら libx264: medium（プレビュー時 ultrafast）、NVENC: p5（プレビュー時 p1）
+# video_quality: null   # libx264はCRF、NVENCはCQ。小さいほど高画質（既定 23、プレビュー時 30〜32）
+
+# プレビューモード（videomaker preview / render --preview）
+# preview_scale: 0.5    # 解像度の倍率（1920x1080 -> 960x540）
+# preview_fps: 10       # フレームレート

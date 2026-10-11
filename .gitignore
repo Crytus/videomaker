@@ -1,0 +1,21 @@
+__pycache__/
+.pytest_cache/
+.cache/
+dist/
+*.mp4
+*.wav
+
+# ビルド・出力物
+build/
+output/
+*.egg-info/
+
+# 試行錯誤用スクリプト
+save/
+
+# 個人環境の設定（ローカルパスやトークンを含むため。config.example.yaml をコピーして使う）
+config.yaml
+
+# 再配布できないフォント（MSゴシックなど）。各自 assets/fonts/ に配置する
+assets/fonts/*
+!assets/fonts/.gitkeep

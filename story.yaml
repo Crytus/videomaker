@@ -1,0 +1,63 @@
+video:
+  width: 1920
+  height: 1080
+  fps: 30
+  bgm: assets/sounds/BGM2-1.wav
+  voice: narrator_metan
+  subtitle:
+    position: bottom
+    style:
+      fill: "#FFFFFF"
+      stroke: "#000000"
+      padding: 32
+
+scenes:
+  - id: intro
+    image: DSC00052.JPG
+    voiceover: |
+      春の山道には小鳥の声が響きます。
+      飯盛山は八ヶ岳を望むのに最良の山です。
+      登山道を上っていくにつれて、八ヶ岳の展望が変わります。
+      ５月の連休の時期には、八ヶ岳には雪が残っています。
+      飯盛山にはもう残雪はありません。
+    teletext:
+      text: 飯盛山は八ヶ岳を望む山です
+      position: top_left
+      style:
+        fill: "#FFE066"
+        stroke: "#222222"
+
+  - id: river1
+    image: DSC00042.JPG
+    teletext:
+      text: 春の小川
+      position: top_left
+      style:
+        fill: "#FFE066"
+        stroke: "#222222"
+    voiceover: |
+      谷を抜ける風が、澄んだ川面を揺らします。
+    transition: cut
+    voice_override:
+      voice: narrator_tsumugi
+      speed: 1.2
+  - id: river2
+    image: DSC00042.JPG
+    teletext:
+      text: 春の小川
+      position: top_left
+      style:
+        fill: "#FFE066"
+        stroke: "#222222"
+    voiceover: |
+      とても気持ちの良い登山道です。
+    transition: cut
+    voice_override:
+      voice: narrator_zunda
+      speed: 1.2
+
+options:
+  voice_cache_dir: .cache/voice
+  subtitle_format: burn
+  keep_temp: false
+  workers: 1

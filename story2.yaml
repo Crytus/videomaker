@@ -1,0 +1,61 @@
+video:
+  width: 1920
+  height: 1080
+  fps: 30
+  bgm: assets/sounds/BGM2-1.wav
+  voice: narrator_female
+  subtitle:
+    position: bottom
+    style:
+      fill: "#FFFFFF"
+      stroke: "#000000"
+      padding: 32
+scenes:
+  - id: intro
+    image: assets/images/DSC00052.JPG
+    duration: 6
+    voiceover: >
+      春の山道には雪解け水が流れ、小鳥の声が響きます。
+    subtitle: 春の山道に雪解け水が流れる
+    teletext:
+      text: 飯盛山登山道からの八ヶ岳
+      position: top_left
+      style:
+        fill: "#FFE066"
+        stroke: "#222222"
+  - id: river
+    image: assets/images/DSC00042.JPG
+    duration: 5
+    teletext:
+      text: 春の小川
+      position: top_left
+      style:
+        fill: "#FFE066"
+        stroke: "#222222"
+    voiceover: >
+      谷を抜ける風が、澄んだ川面を揺らします。
+    transition: cut
+    voice_override:
+      voice: narrator_male
+      speed: 0.95
+  - id: video
+    video: dist/qwen_edit1.mp4
+    duration: 59
+    teletext:
+      text: カンディンスキー
+      position: top_left
+      style:
+        fill: "#FFE066"
+        stroke: "#222222"
+    voiceover: >
+      
+    transition: cut
+    voice_override:
+      voice: narrator_male
+      speed: 0.95
+
+options:
+  voice_cache_dir: .cache/voice
+  subtitle_format: burn
+  keep_temp: false
+  workers: 1

@@ -1,0 +1,41 @@
+video:
+  width: 1920
+  height: 1080
+  fps: 30
+  bgm: assets/bgm/soft.mp3
+  voice: narrator_female
+  subtitle:
+    font: assets/fonts/NotoSansJP-Regular.otf
+    position: bottom
+    style:
+      fill: "#FFFFFF"
+      stroke: "#000000"
+      padding: 32
+scenes:
+  - id: intro
+    image: assets/images/mountain.jpg
+    duration: 6
+    voiceover: >
+      春の山道には雪解け水が流れ、小鳥の声が響きます。
+    subtitle: 春の山道に雪解け水が流れる
+    teletext:
+      text: 春の登山道
+      position: top_left
+      style:
+        fill: "#FFE066"
+        stroke: "#222222"
+  - id: river
+    image: assets/images/river.jpg
+    duration: 5
+    voiceover: >
+      谷を抜ける風が、澄んだ川面を揺らします。
+    transition: crossfade
+    subtitle: 谷を抜ける風と澄んだ川面
+    voice_override:
+      voice: narrator_male
+      speed: 0.95
+options:
+  voice_cache_dir: .cache/voice
+  subtitle_format: burn
+  keep_temp: false
+  workers: 1

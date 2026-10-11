@@ -1,0 +1,119 @@
+video:
+  width: 1920
+  height: 1080
+  fps: 30
+  bgm: assets/sounds/BGM2-1.wav
+  voice: narrator_female
+  subtitle:
+    position: bottom
+    style:
+      fill: "#FFFFFF"
+      stroke: "#000000"
+      padding: 32
+
+scenes:
+  - id: photo0
+    image: 
+    teletext:
+      text: Qwen Image Edit 2509
+    voiceover: |
+      Qwen Image Editを使用して、画像の変換をしました
+      同時に8種類の変換を行うワークフローを作りました
+
+  - id: photo1
+    image: カディンスキー.JPG
+    teletext:
+      text: カンディンスキー
+    voiceover: |
+      カンディンスキーは、抽象画の巨匠です
+      これは彼の有名な絵です
+      イメージエディットで、いろいろな画風に変換します
+
+  - id: photo2
+    image: Flux2-Klein_Ghibli_00279_.png
+    teletext:
+      text: 線画に変換
+    voiceover: |
+      線画に変換しました
+      この画像から他の画風にします
+      これにより、元の絵の色の影響は受けません
+    transition: cut
+
+  - id: photo3
+    image: Flux2-Klein_ukiyo-e_00152_.png
+    teletext:
+      text: 浮世絵風
+    voiceover: |
+      浮世絵風に変換しました
+      版画風の色付けと、それらしい背景になります
+
+  - id: photo4
+    image: Flux2-Klein_da_vinci_00152_.png
+    teletext:
+      text: ダビンチ風
+    voiceover: |
+      ダビンチ風に変換しました
+      背景などがダビンチの絵に似たものになります
+
+  - id: photo5
+    image: Flux2-Klein_Ghibli_00280_.png
+    teletext:
+      text: ジブリ風
+    voiceover: |
+      ジブリ風に変換しました
+      色遣いがジブリの絵に似ています
+
+  - id: photo6
+    image: Flux2-Klein_water_00152_.png
+    teletext:
+      text: 水彩画風
+    voiceover: |
+      水彩画風に変換しました
+      淡い色で、色むらなどがそれらしいです
+
+  - id: photo7
+    image: Flux2-Klein_crayon_00152_.png
+    teletext:
+      text: クレヨン塗り絵風
+    voiceover: |
+      クレヨンの塗り絵に変換しました
+      小さい子供が書いたようにと指示しています
+
+  - id: photo8
+    image: Flux2-Klein_sumi-e_00152_.png
+    teletext:
+      text: 墨絵風
+    voiceover: |
+      墨絵風に変換しました
+      黒一色になるようには、あえて指示していません
+
+  - id: photo9
+    image: Flux2-Klein_dali_00152_.png
+    teletext:
+      text: ダリ風
+    voiceover: |
+      ダリ風に変換しました
+      世界観が良く出ています
+
+  - id: photo10
+    image: Flux2-Klein_street_00152_.png
+    teletext:
+      text: グラフィティ（落書き）風
+    voiceover: |
+      グラフィティ（落書き）風に変換しました
+      カラフルな色遣いがそれらしいです。
+
+  - id: photo11
+    image: Flux2-Klein_street_00152_.png
+    teletext:
+      text: 
+    voiceover: |
+      このビデオの音声は、VOICEVOXのずんだもんを使用しています。
+      最後までご視聴、ありがとうと材ました。
+      良ければ、いいね、登録をお願いします。
+
+options:
+  voice_cache_dir: .cache/voice
+  subtitle_format: burn
+  keep_temp: false
+  workers: 1
