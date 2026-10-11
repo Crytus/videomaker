@@ -29,6 +29,10 @@ teletext_color: "#FFE066"
 teletext_stroke_color: "#222222"
 teletext_stroke_width: 3
 
+# 文字の背景色の既定値（シナリオの style.background が優先）。半透明は #RRGGBBAA
+# subtitle_background: "#00000080"
+# teletext_background: "#00000080"
+
 # 音声のデフォルト設定
 voice_volume: 1.0  # ナレーション音量（1.0が100%、0.0～2.0の範囲）
 

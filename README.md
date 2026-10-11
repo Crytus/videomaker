@@ -274,6 +274,8 @@ voicebox_reading_map:
 | `max_line_chars` | `30` | ナレーション・字幕の1行の最大文字数の目安。超える行は句読点を優先して自動分割します（[長いナレーションの自動分割](#長いナレーションの自動分割)参照）。`0` で分割しない |
 | `teletext_font_size` | `60` | テロップの文字サイズ（シナリオの `style.font_size` が優先） |
 | `teletext_stroke_width` | `3` | テロップの縁取り幅（シナリオの `style.stroke_width` が優先） |
+| `subtitle_background` | `null` | 字幕の背景色の既定値（シナリオの `style.background` が優先）。例: `"#00000080"` |
+| `teletext_background` | `null` | テロップの背景色の既定値（シナリオの `style.background` が優先） |
 | `subtitle_color`, `subtitle_stroke_color`, `teletext_color`, `teletext_stroke_color` | | 現在は使われていません。文字色・縁取り色はシナリオの `style.fill` / `style.stroke` で指定してください |
 
 ### 音声の既定値
@@ -417,7 +419,33 @@ options:
 | `stroke_width` | `null` | 縁取り幅（px）。`null` なら config の値 |
 | `font_size` | `null` | 文字サイズ。`null` なら config の値 |
 | `padding` | `24` | 字幕の画面端からの余白（px）。字幕のみ有効 |
-| `background` | `null` | 未実装 |
+| `background` | `null` | 文字の背景色。`"#RRGGBB"`、半透明は `"#RRGGBBAA"`（例: `"#00000080"` で50%の黒）、`red` などの色名も可。`null` なら config の `subtitle_background` / `teletext_background` |
+| `background_opacity` | `null` | 背景の不透明度（0.0＝透明〜1.0＝不透明）。`background` のアルファ値に掛け合わせる |
+| `background_padding` | `16` | 文字の周りに広げる背景の余白（px） |
+
+#### 文字の背景（読みにくいときに）
+
+画像によって字幕やテロップが読みにくい場合は、`style.background` で文字の後ろに色付きの矩形を敷けます。矩形は文字が実際に描かれている範囲より `background_padding` だけ大きくなります。
+
+```yaml
+video:
+  subtitle:
+    style:
+      background: "#00000080"        # 字幕: 半透明の黒
+scenes:
+  - id: intro
+    teletext:
+      text: 飯盛山登山道からの八ヶ岳
+      style:
+        fill: "#FFE066"
+        background: "#1E3A5F"        # テロップ: 紺色を
+        background_opacity: 0.6      # 60%の不透明度で
+        background_padding: 20       # 文字の周りに20pxの余白
+```
+
+- 半透明は `"#RRGGBBAA"` の末尾2桁（`00`＝透明〜`FF`＝不透明。`80` で約50%）か、`background_opacity` で指定します。両方指定すると掛け合わせます。
+- 複数行のテロップは、全行をまとめて1枚の矩形で囲みます。複数行の字幕は、表示中の行ごとに文字の長さに合わせた矩形になります。
+- 全シーン共通にしたい場合は、config の `subtitle_background` / `teletext_background` に指定します（シナリオの `style.background` が優先）。
 
 ### `scenes`（シーンの配列）
 
@@ -618,7 +646,7 @@ videomaker preview story.yaml --no-voice      # -> dist/story_novoice_preview.mp
 
 ## 既知の制限・未実装の項目
 
-- `kenburns`、`style.background`、`options` の `subtitle_format` / `keep_temp` / `workers` は、設定は受け付けますが動作には反映されません。
+- `kenburns`、`options` の `subtitle_format` / `keep_temp` / `workers` は、設定は受け付けますが動作には反映されません。
 - テロップの `position` が `top_right` / `bottom_left` / `bottom_right` の場合、文字の左上が画面の右端・下端付近に置かれるため、テロップが画面外にはみ出します。現状は `top_left` または `center` を使ってください。
 - config の `subtitle_color` などの色設定は使われていません（シナリオの `style` で指定）。
 - `subtitle_line_interval` が 0 の場合や `subtitle` を別に指定した場合、複数行字幕の表示時間は文字数による割り振りのため、音声とは厳密には一致しません。
@@ -629,6 +657,7 @@ videomaker preview story.yaml --no-voice      # -> dist/story_novoice_preview.mp
 
 ### 2026-10
 
+- **字幕・テロップの背景色**: `style.background`（半透明は `#RRGGBBAA`）、`background_opacity`、`background_padding` で、文字より少し大きい色付きの矩形を文字の後ろに敷けるようにした。config の `subtitle_background` / `teletext_background` で既定値も指定可能。あわせて、テロップの `top_right` / `bottom_*` 配置で文字が画面外にはみ出していた問題を修正。
 - **ナレーションとシーン・字幕のタイミングを修正**: `duration` がナレーションより短い場合に、画面が切り替わり音声が途中で切れていた問題を修正し、ナレーションが収まる長さまで自動で延長するようにした。1行ずつ音声合成した場合は、字幕を各行の音声に合わせて切り替えるようにした。
 - **長いナレーションの自動分割**: `max_line_chars`（既定 30文字）を超える行を、句点 → 読点 → 空白 → 括弧 → 文節らしい境目の優先順で自動分割し、1行ずつ音声合成・字幕表示するようにした。`voiceover: >` で書いた文章の日本語間の余分な空白も取り除く。複数行字幕の表示時間を、行数で等分する方式から文字数に比例する方式に変更。
 - **シーン切り替えのトランジションを追加**: `video.transition` / `scenes[].transition` で `cut` / `fade` / `crossfade` を指定できるようにした。クロスフェードはナレーションが重ならない長さに自動で短縮し、重なる区間は字幕を表示しない。トランジション区間だけフレームを混ぜる方式で、書き出し速度をほぼ維持。シーンより長い音声が次のシーンに食い込まないよう切り詰めるようにした。

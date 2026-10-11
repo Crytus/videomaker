@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import bisect
 import functools
+import math
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -46,7 +47,7 @@ from rich.console import Console
 
 from .config import AppConfig
 from .errors import AssetError, RenderError, VideoMakerError
-from .models import SceneSpec, VideoScript
+from .models import SceneSpec, SubtitleStyle, VideoScript, parse_color
 from .textsplit import split_text_lines
 from .transitions import SpeechSpan, Transition, compose_timeline, plan_transitions
 
@@ -376,7 +377,11 @@ class Renderer:
             console.log(f"[cyan]シーン {scene.id} にテロップが設定されています[/]")
             teletext_clip = self._create_teletext_clip(scene)
             if teletext_clip:
-                overlays.append(teletext_clip)
+                # 背景付きの場合は [背景, 文字] のリストで返される
+                if isinstance(teletext_clip, list):
+                    overlays.extend(teletext_clip)
+                else:
+                    overlays.append(teletext_clip)
                 console.log(f"[green]テロップをオーバーレイに追加しました: {scene.id}[/]")
             else:
                 console.log(f"[yellow]テロップクリップの作成に失敗しました: {scene.id}[/]")
@@ -461,6 +466,7 @@ class Renderer:
                 if subtitle_config.style.stroke_width is not None
                 else (self.config.subtitle_stroke_width if self.config else 2)
             )
+            background_default = self.config.subtitle_background if self.config else None
 
             # テキストを行ごとに分割（空行は除外。長い行は句読点を優先して自動分割）
             max_chars = self.config.max_line_chars if self.config else 30
@@ -487,7 +493,10 @@ class Renderer:
                 ).with_position(("center", y_position)).with_start(window_start)
 
                 console.log(f"[green]字幕を作成しました: {scene.id} (font_size={font_size})[/]")
-                return txt_clip
+                box = self._background_box(
+                    [(txt_clip, ("center", y_position))], subtitle_config.style, background_default
+                )
+                return [box, txt_clip] if box else txt_clip
             else:
                 # 複数行の場合は1行ずつ順番に表示（リストで返す）
                 console.log(f"[cyan]複数行字幕を作成中: {scene.id} - {len(lines)}行（順次表示）[/]")
@@ -538,6 +547,12 @@ class Renderer:
                         duration=duration_per_line,
                     ).with_position(("center", y_position)).with_start(current_time)
 
+                    # 背景は行ごとに、その行の文字の大きさに合わせて付ける
+                    box = self._background_box(
+                        [(txt_clip, ("center", y_position))], subtitle_config.style, background_default
+                    )
+                    if box:
+                        clips.append(box)
                     clips.append(txt_clip)
                     console.log(f"[green]  行{i+1}: '{line}' (開始: {current_time:.2f}秒, 長さ: {duration_per_line:.2f}秒)[/]")
 
@@ -580,37 +595,43 @@ class Renderer:
             # テキストを行ごとに分割
             lines = [line.strip() for line in teletext.text.split('\n') if line.strip()]
 
+            background_default = self.config.teletext_background if self.config else None
+
             if len(lines) == 1:
                 # 単一行の場合は従来通り
                 padding = 50
-                position_map = {
-                    "top_left": (padding, padding),
-                    "top_right": (self.script.video.width - padding, padding),
-                    "bottom_left": (padding, self.script.video.height - padding),
-                    "bottom_right": (self.script.video.width - padding, self.script.video.height - padding),
-                    "center": ("center", "center"),
-                }
-                position = position_map.get(teletext.position, ("center", "center"))
-
-                console.log(f"[cyan]テロップを作成中: {scene.id} - テキスト='{teletext.text}', 位置={position}, font_size={font_size}[/]")
-
                 txt_clip = TextClip(
-                    text=teletext.text,
+                    text=lines[0],
                     font=font,
                     font_size=font_size,
                     color=color,
                     stroke_color=stroke_color if stroke_color else None,
                     stroke_width=stroke_width if stroke_color else 0,
                     duration=scene.duration,
-                ).with_position(position)
+                )
+                # 右・下寄せは文字の大きさを引いて、画面内に収まる位置にする
+                width, height = self.script.video.width, self.script.video.height
+                clip_w, clip_h = txt_clip.size
+                position_map = {
+                    "top_left": (padding, padding),
+                    "top_right": (width - padding - clip_w, padding),
+                    "bottom_left": (padding, height - padding - clip_h),
+                    "bottom_right": (width - padding - clip_w, height - padding - clip_h),
+                    "center": ("center", "center"),
+                }
+                position = position_map.get(teletext.position, ("center", "center"))
+                txt_clip = txt_clip.with_position(position)
 
+                console.log(f"[cyan]テロップを作成中: {scene.id} - テキスト='{teletext.text}', 位置={position}, font_size={font_size}[/]")
                 console.log(f"[green]テロップを作成しました: {scene.id}[/]")
-                return txt_clip
+                box = self._background_box([(txt_clip, position)], teletext.style, background_default)
+                return [box, txt_clip] if box else txt_clip
             else:
                 # 複数行の場合は行ごとに分けて表示
                 console.log(f"[cyan]複数行テロップを作成中: {scene.id} - {len(lines)}行[/]")
 
                 clips = []
+                placed = []  # 背景の範囲を求めるための (クリップ, 配置)
                 padding = 50
                 line_spacing = font_size + 10  # 行間スペース
 
@@ -626,13 +647,6 @@ class Renderer:
                 for i, line in enumerate(lines):
                     y_pos = start_y + (i * line_spacing)
 
-                    if "left" in base_position:
-                        x_pos = padding
-                    elif "right" in base_position:
-                        x_pos = self.script.video.width - padding
-                    else:  # center
-                        x_pos = "center"
-
                     txt_clip = TextClip(
                         text=line,
                         font=font,
@@ -641,13 +655,25 @@ class Renderer:
                         stroke_color=stroke_color if stroke_color else None,
                         stroke_width=stroke_width if stroke_color else 0,
                         duration=scene.duration,
-                    ).with_position((x_pos, y_pos))
+                    )
+                    if "left" in base_position:
+                        x_pos = padding
+                    elif "right" in base_position:
+                        # 右寄せは各行の右端を揃える
+                        x_pos = self.script.video.width - padding - txt_clip.size[0]
+                    else:  # center
+                        x_pos = "center"
+                    txt_clip = txt_clip.with_position((x_pos, y_pos))
 
                     clips.append(txt_clip)
+                    placed.append((txt_clip, (x_pos, y_pos)))
                     console.log(f"[green]  行{i+1}: '{line}' at ({x_pos}, {y_pos})[/]")
 
-                # 複数のテキストクリップを結合
+                # 複数のテキストクリップを結合（背景は全行をまとめて囲む1枚の矩形）
                 if clips:
+                    box = self._background_box(placed, teletext.style, background_default)
+                    if box:
+                        clips.insert(0, box)
                     composite = CompositeVideoClip(clips, size=(self.script.video.width, self.script.video.height))
                     console.log(f"[green]複数行テロップを作成しました: {scene.id} ({len(lines)}行)[/]")
                     return composite
@@ -658,6 +684,58 @@ class Renderer:
             import traceback
             console.log(f"[red]{traceback.format_exc()}[/]")
             return None
+
+    def _resolve_xy(self, position: tuple, size: tuple[int, int]) -> tuple[float, float]:
+        """("center", 100) のような配置指定を、画面上の左上座標(px)に変換する。"""
+        screen = (self.script.video.width, self.script.video.height)
+        result = []
+        for value, length, full in zip(position, size, screen):
+            if value == "center":
+                result.append((full - length) / 2)
+            elif value in ("left", "top"):
+                result.append(0.0)
+            elif value in ("right", "bottom"):
+                result.append(float(full - length))
+            else:
+                result.append(float(value))
+        return result[0], result[1]
+
+    def _background_box(self, items: list[tuple], style: SubtitleStyle, default_color: str | None):
+        """文字クリップ群 [(クリップ, 配置)] を囲む背景の矩形クリップを作る。背景色が無ければNone。
+
+        文字が実際に描かれている範囲（マスク）から、background_padding だけ広げた大きさにする。
+        半透明の色はマスクで表現する。
+        """
+        color = style.background or default_color
+        if not color or not items:
+            return None
+        r, g, b, a = parse_color(color, style.background_opacity)
+        if a == 0:
+            return None
+        pad = style.background_padding
+        width, height = self.script.video.width, self.script.video.height
+
+        left = top = float("inf")
+        right = bottom = float("-inf")
+        for clip, position in items:
+            x, y = self._resolve_xy(position, clip.size)
+            bx0, by0, bx1, by1 = _text_bbox(clip)
+            left, top = min(left, x + bx0), min(top, y + by0)
+            right, bottom = max(right, x + bx1), max(bottom, y + by1)
+
+        # 余白を広げ、画面からはみ出す部分は切り詰める
+        x0, y0 = max(0, math.floor(left - pad)), max(0, math.floor(top - pad))
+        x1, y1 = min(width, math.ceil(right + pad)), min(height, math.ceil(bottom + pad))
+        if x1 <= x0 or y1 <= y0:
+            return None
+
+        image = np.empty((y1 - y0, x1 - x0, 4), dtype=np.uint8)
+        image[:, :] = (r, g, b, a)
+        first = items[0][0]
+        box = ImageClip(image, transparent=True).with_duration(first.duration).with_position((x0, y0))
+        if first.start:
+            box = box.with_start(first.start)
+        return box
 
     def _resolve_font(self, font_path: Path | None) -> str | None:
         """フォントパスを解決する。見つからない場合はdefault_fontを使用。"""
@@ -728,3 +806,18 @@ def _first_line(exc: BaseException, limit: int = 300) -> str:
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     summary = lines[0] if len(lines) == 1 else f"{lines[0]} ... {lines[-1]}"
     return summary if len(summary) <= limit else summary[:limit] + "…"
+
+
+def _text_bbox(clip) -> tuple[int, int, int, int]:
+    """文字クリップ内で、文字（縁取りを含む）が実際に描かれている範囲 (左, 上, 右, 下) を返す。
+
+    TextClipは指定幅いっぱいの大きさになることがあるため、マスクから求める。
+    """
+    width, height = clip.size
+    if clip.mask is None:
+        return 0, 0, width, height
+    alpha = np.asarray(clip.mask.get_frame(0))
+    ys, xs = np.nonzero(alpha > 0.05)
+    if len(xs) == 0:
+        return 0, 0, width, height
+    return int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1

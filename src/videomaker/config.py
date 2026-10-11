@@ -5,9 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from .errors import ConfigError, format_validation_error, load_yaml_mapping
+from .models import parse_color
 
 
 class AppConfig(BaseModel):
@@ -44,6 +45,17 @@ class AppConfig(BaseModel):
     teletext_color: str = Field("#FFE066", description="テロップの文字色")
     teletext_stroke_color: str = Field("#222222", description="テロップの縁取り色")
     teletext_stroke_width: int = Field(3, ge=0, description="テロップの縁取り幅")
+
+    # 文字の背景色の既定値（シナリオのstyle.backgroundが優先）。半透明は #RRGGBBAA（例: "#00000080"）
+    subtitle_background: str | None = Field(None, description="字幕の背景色の既定値")
+    teletext_background: str | None = Field(None, description="テロップの背景色の既定値")
+
+    @field_validator("subtitle_background", "teletext_background")
+    @classmethod
+    def _check_background(cls, value: str | None) -> str | None:
+        if value is not None:
+            parse_color(value)
+        return value
 
     # 音声のデフォルト設定
     voice_volume: float = Field(1.0, ge=0.0, le=2.0, description="ナレーション音量（1.0が100%）")

@@ -21,7 +21,40 @@ class SubtitleStyle(BaseModel):
     stroke_width: int | None = Field(None, ge=0, description="縁取り幅(px)")
     font_size: int | None = Field(None, ge=1, description="文字サイズ")
     padding: int = Field(24, ge=0, description="文字周囲のパディング(px)")
-    background: str | None = Field(None, description="背景色 (hex)")
+    background: str | None = Field(
+        None, description="背景色。#RRGGBB、半透明は #RRGGBBAA（例: #00000080）や色名も可"
+    )
+    background_opacity: float | None = Field(
+        None, ge=0.0, le=1.0, description="背景の不透明度（0.0=透明〜1.0=不透明）。背景色のアルファ値に掛け合わせる"
+    )
+    background_padding: int = Field(16, ge=0, description="文字の周りに広げる背景の余白(px)")
+
+    @validator("background")
+    def _check_background(cls, value: str | None) -> str | None:
+        if value is not None:
+            parse_color(value)
+        return value
+
+
+def parse_color(value: str, opacity: float | None = None) -> tuple[int, int, int, int]:
+    """色の指定を (R, G, B, A) に変換する。A は 0〜255。
+
+    #RGB / #RRGGBB / #RRGGBBAA / rgb(...) / 色名（red など）に対応し、
+    opacity を指定するとアルファ値に掛け合わせる。
+    """
+    from PIL import ImageColor
+
+    try:
+        rgb = ImageColor.getrgb(value.strip())
+    except (ValueError, AttributeError) as exc:
+        raise ValueError(
+            f"色の指定が不正です: {value!r}（例: \"#000000\"、半透明なら \"#00000080\"）"
+        ) from exc
+    r, g, b = rgb[:3]
+    alpha = rgb[3] if len(rgb) == 4 else 255
+    if opacity is not None:
+        alpha = round(alpha * opacity)
+    return r, g, b, alpha
 
 
 class SubtitleConfig(BaseModel):
