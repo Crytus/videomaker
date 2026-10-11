@@ -21,6 +21,7 @@ subtitle_font_size: 48
 subtitle_color: "#FFFFFF"
 subtitle_stroke_color: "#000000"
 subtitle_stroke_width: 2
+max_line_chars: 30  # 1行の最大文字数の目安。超える行は句読点を優先して自動分割（0で分割しない）
 
 # テロップのデフォルト設定
 teletext_font_size: 60

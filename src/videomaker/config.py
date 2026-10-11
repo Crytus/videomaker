@@ -33,6 +33,11 @@ class AppConfig(BaseModel):
     subtitle_stroke_color: str = Field("#000000", description="字幕の縁取り色")
     subtitle_stroke_width: int = Field(2, ge=0, description="字幕の縁取り幅")
     subtitle_line_interval: float = Field(0.0, ge=0.0, description="複数行字幕の行間時間（秒）")
+    max_line_chars: int = Field(
+        30,
+        ge=0,
+        description="ナレーション・字幕の1行の最大文字数の目安。超える行は句読点を優先して自動分割する（0で分割しない）",
+    )
 
     # テロップのデフォルト設定
     teletext_font_size: int = Field(60, ge=1, description="テロップの文字サイズ")

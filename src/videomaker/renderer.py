@@ -47,6 +47,7 @@ from rich.console import Console
 from .config import AppConfig
 from .errors import AssetError, RenderError, VideoMakerError
 from .models import SceneSpec, VideoScript
+from .textsplit import split_text_lines
 from .transitions import SpeechSpan, Transition, compose_timeline, plan_transitions
 
 console = Console()
@@ -451,8 +452,11 @@ class Renderer:
                 else (self.config.subtitle_stroke_width if self.config else 2)
             )
 
-            # テキストを行ごとに分割（空行は除外）
-            lines = [line.strip() for line in text.split('\n') if line.strip()]
+            # テキストを行ごとに分割（空行は除外。長い行は句読点を優先して自動分割）
+            max_chars = self.config.max_line_chars if self.config else 30
+            lines = split_text_lines(text, max_chars)
+            if not lines:
+                return None
 
             if len(lines) == 1:
                 # 単一行の場合は従来通り
@@ -462,7 +466,7 @@ class Renderer:
                     y_position = self.script.video.height - 100 - subtitle_config.style.padding
 
                 txt_clip = TextClip(
-                    text=text,
+                    text=lines[0],
                     font=font,
                     font_size=font_size,
                     color=color,
@@ -494,14 +498,16 @@ class Renderer:
                 total_interval = (len(lines) - 1) * line_interval
                 # 実際の表示時間 = シーン全体 - 総間隔時間
                 actual_duration = window_length - total_interval
-                # 1行あたりの長さ
-                duration_per_line = actual_duration / len(lines)
+                # 各行の表示時間は文字数（空白を除く）に比例させる（読み上げの長さに近づけるため）
+                weights = [max(len("".join(line.split())), 1) for line in lines]
+                total_weight = sum(weights)
 
                 if line_interval > 0:
-                    console.log(f"[cyan]行間間隔: {line_interval}秒, 1行あたりの表示時間: {duration_per_line:.2f}秒[/]")
+                    console.log(f"[cyan]行間間隔: {line_interval}秒[/]")
 
                 current_time = window_start
                 for i, line in enumerate(lines):
+                    duration_per_line = actual_duration * weights[i] / total_weight
                     txt_clip = TextClip(
                         text=line,
                         font=font,

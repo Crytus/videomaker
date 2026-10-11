@@ -14,6 +14,7 @@ from .errors import AssetError, VideoMakerError
 from .models import SceneSpec, VideoScript
 from .renderer import Renderer, RenderSettings
 from .script_parser import parse_script
+from .textsplit import split_text_lines
 from .transitions import TRANSITION_NAMES, Transition
 from .voicebox import VoiceboxClient
 
@@ -128,8 +129,8 @@ class VideoPipeline:
             speed = scene.voice_override.speed if scene.voice_override else None
             pitch = scene.voice_override.pitch if scene.voice_override else None
 
-            # voiceoverを行ごとに分割
-            lines = [line.strip() for line in scene.voiceover.split('\n') if line.strip()]
+            # voiceoverを行ごとに分割（長い行は句読点を優先して自動分割。字幕と同じ分け方）
+            lines = split_text_lines(scene.voiceover, self.config.max_line_chars)
             line_interval = self.config.subtitle_line_interval if self.config else 0.0
 
             if len(lines) > 1 and line_interval > 0:
@@ -231,7 +232,7 @@ class VideoPipeline:
 
         音声ありの場合と同じく、行間の間隔と前後の無音（voice_margin_*）も加える。
         """
-        lines = [line.strip() for line in scene.voiceover.split("\n") if line.strip()]
+        lines = split_text_lines(scene.voiceover, self.config.max_line_chars)
         # 空白は読み上げ時間に含めない
         chars = sum(len("".join(line.split())) for line in lines)
         speech = max(chars / self.config.no_voice_chars_per_second, self.config.no_voice_min_duration)
