@@ -110,6 +110,28 @@ def scene_starts(durations: Sequence[float], plans: Sequence[Transition]) -> lis
     return starts
 
 
+def fit_to_starts(
+    durations: Sequence[float], plans: Sequence[Transition], fixed_starts: Sequence[float | None]
+) -> list[float]:
+    """開始時刻が決まっているシーンがその時刻ちょうどに始まるよう、直前のシーンの長さを調整する。
+
+    fixed_starts[i] はシーンiの開始時刻（書き出す動画の先頭からの秒数）。Noneなら前のシーンに続ける。
+    クロスフェードでは次のシーンが指定時刻からフェードインし始めるよう、重なる分だけ前のシーンを延ばす。
+    """
+    result = list(durations)
+    starts: list[float] = []
+    for i in range(len(result)):
+        if i == 0:
+            start = 0.0
+        elif fixed_starts[i] is not None:
+            start = fixed_starts[i]
+            result[i - 1] = max(start + plans[i].overlap - starts[i - 1], MIN_TRANSITION)
+        else:
+            start = starts[i - 1] + result[i - 1] - plans[i].overlap
+        starts.append(start)
+    return result
+
+
 def compose_timeline(clips: Sequence, plans: Sequence[Transition], video_clip_cls, audio_clip_cls):
     """シーンのクリップをトランジション付きで1本の動画にする。
 

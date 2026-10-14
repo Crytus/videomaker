@@ -485,8 +485,42 @@ video:
   bgm: assets/bgm/background.mp3
 ```
 
-BGMは動画全体の長さに合わせて自動調整され、ボリュームは40%に設定されます。
+BGMは動画全体の長さに合わせて自動調整され、ボリュームは既定で40%に設定されます。
 BGMが動画より短い場合は、動画の終わりまで自動的に繰り返し再生されます。
+
+音量・再生開始位置・フェード・ループの有無は次のように指定できます。
+
+```yaml
+video:
+  bgm: assets/sounds/song.mp3
+  bgm_volume: 1.0      # 音量（1.0が元の音量）
+  bgm_start: "0:30"    # 曲の30秒目から使う
+  bgm_fade_in: 1.0     # 冒頭1秒でフェードイン
+  bgm_fade_out: 3.0    # 最後の3秒でフェードアウト
+  bgm_loop: false      # 動画より短くても繰り返さない
+```
+
+### ミュージックビデオ（シーンの開始時刻の指定）
+
+曲に合わせて画面を切り替える場合は、シーンに `start`（動画の先頭からの時刻）を指定します。
+直前のシーンの長さは自動で決まり、クロスフェードを使っても開始時刻はずれません。
+`voiceover` は省略でき、歌詞は `subtitle` に書きます。最後のシーンは `duration` を省略すると曲の終わりまで表示します。
+
+```yaml
+scenes:
+  - id: intro
+    image: assets/images/intro.jpg
+  - id: verse1
+    image: assets/images/a.jpg
+    start: "0:12.5"    # 「分:秒」または秒数（12.5）
+    subtitle: 一番の歌詞
+  - id: chorus
+    image: assets/images/b.jpg
+    start: 45
+    subtitle: サビの歌詞
+```
+
+詳しくは README の「ミュージックビデオ（開始時刻の指定）」を参照してください。サンプルは `musicvideo.yaml` です。
 
 ### Voiceboxのタイムアウト
 

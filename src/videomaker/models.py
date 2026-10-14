@@ -5,12 +5,42 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, model_validator, validator
+from pydantic import BaseModel, Field, field_validator, model_validator, validator
 
 
 # シーン切り替えのトランジション種別
 # cut: 瞬間切り替え / fade: 黒を経由して切り替え / crossfade: 前のシーンに重ねて溶け込ませる
 TransitionType = Literal["cut", "fade", "crossfade"]
+
+
+def parse_time(value: float | int | str) -> float:
+    """時刻・時間の指定を秒数に変換する。
+
+    数値（秒）のほか、"分:秒"（例: "1:23.5"）や "時:分:秒"（例: "1:02:03"）の文字列に対応する。
+    """
+    if isinstance(value, bool):
+        raise ValueError("時刻は秒数か \"分:秒\" 形式で指定してください")
+    if isinstance(value, (int, float)):
+        seconds = float(value)
+    elif isinstance(value, str):
+        parts = value.strip().split(":")
+        if len(parts) > 3 or not all(part.strip() for part in parts):
+            raise ValueError(f"時刻の指定が不正です: {value!r}（例: 83.5、\"1:23.5\"、\"1:02:03\"）")
+        try:
+            numbers = [float(part) for part in parts]
+        except ValueError as exc:
+            raise ValueError(f"時刻の指定が不正です: {value!r}（例: 83.5、\"1:23.5\"、\"1:02:03\"）") from exc
+        # 秒以外の桁（分・時）は整数、分と秒は60未満であること
+        if any(n != int(n) for n in numbers[:-1]) or any(n >= 60 for n in numbers[1:]):
+            raise ValueError(f"時刻の指定が不正です: {value!r}（例: 83.5、\"1:23.5\"、\"1:02:03\"）")
+        seconds = 0.0
+        for number in numbers:
+            seconds = seconds * 60 + number
+    else:
+        raise ValueError("時刻は秒数か \"分:秒\" 形式で指定してください")
+    if seconds < 0:
+        raise ValueError("時刻に負の値は指定できません")
+    return seconds
 
 
 class SubtitleStyle(BaseModel):
@@ -123,8 +153,11 @@ class SceneSpec(BaseModel):
     id: str
     image: Optional[Path] = None
     video: Optional[Path] = None
+    start: Optional[float] = Field(
+        None, description="シーンの開始時刻（動画の先頭からの秒数、または \"分:秒\"）。指定すると直前のシーンの長さをこの時刻に合わせる"
+    )
     duration: Optional[float] = Field(None, gt=0, description="シーン長 (秒)。未指定の場合はナレーション音声の長さを使用")
-    voiceover: str
+    voiceover: str = Field("", description="ナレーション。省略または空ならナレーションなしのシーン")
     subtitle: Optional[str] = None
     teletext: Optional[TeletextConfig] = None
     transition: Optional[TransitionType] = Field(
@@ -135,6 +168,17 @@ class SceneSpec(BaseModel):
     )
     kenburns: bool = False
     voice_override: Optional[VoiceOverride] = None
+
+    @field_validator("start", mode="before")
+    @classmethod
+    def _parse_start(cls, value):
+        return None if value is None else parse_time(value)
+
+    @field_validator("voiceover", mode="before")
+    @classmethod
+    def _voiceover_none_to_empty(cls, value):
+        # YAMLで「voiceover:」とだけ書いた場合（None）も空として扱う
+        return "" if value is None else value
 
     @validator("id")
     def _id_not_empty(cls, value: str) -> str:
@@ -205,6 +249,16 @@ class VideoSpec(BaseModel):
     output_file: Optional[Path] = Field(
         None, description="出力ファイル名（省略時はスクリプト名から自動生成）"
     )
+    bgm_volume: float = Field(0.4, ge=0.0, le=2.0, description="BGMの音量（1.0が100%）")
+    bgm_start: float = Field(0.0, description="BGMファイルのどの位置から再生するか（秒、または \"分:秒\"）")
+    bgm_fade_in: float = Field(0.0, ge=0.0, description="BGMのフェードインの長さ（秒）")
+    bgm_fade_out: float = Field(0.0, ge=0.0, description="BGMのフェードアウトの長さ（秒）")
+    bgm_loop: bool = Field(True, description="BGMが動画より短い場合に繰り返すか")
+
+    @field_validator("bgm_start", mode="before")
+    @classmethod
+    def _parse_bgm_start(cls, value):
+        return parse_time(value)
 
     @validator("bgm")
     def _resolve_bgm_path(cls, value: Optional[Path]) -> Optional[Path]:
@@ -254,4 +308,20 @@ class VideoScript(BaseModel):
             seen.add(scene.id)
         if not self.scenes:
             raise ValueError("少なくとも1つのシーンが必要です")
+        first = self.scenes[0]
+        if first.start is not None and first.start > 0:
+            raise ValueError(
+                f"最初のシーン {first.id} の start は 0 にしてください（曲の途中から始める場合は video.bgm_start を使います）"
+            )
+        # start は後のシーンほど大きくなければならない
+        previous = None
+        for scene in self.scenes:
+            if scene.start is None:
+                continue
+            if previous is not None and scene.start <= previous.start:
+                raise ValueError(
+                    f"シーン {scene.id} の start ({scene.start:g}秒) が、"
+                    f"前のシーン {previous.id} の start ({previous.start:g}秒) 以前になっています"
+                )
+            previous = scene
         return self

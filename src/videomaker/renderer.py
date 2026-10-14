@@ -27,7 +27,7 @@ try:
         concatenate_audioclips,
         concatenate_videoclips,
     )
-    from moviepy.audio.fx import AudioLoop
+    from moviepy.audio.fx import AudioFadeIn, AudioFadeOut, AudioLoop
     from moviepy.video.fx import Loop
     MOVIEPY_VERSION = 2
 except ImportError:
@@ -49,7 +49,7 @@ from .config import AppConfig
 from .errors import AssetError, RenderError, VideoMakerError
 from .models import SceneSpec, SubtitleStyle, VideoScript, parse_color
 from .textsplit import split_text_lines
-from .transitions import SpeechSpan, Transition, compose_timeline, plan_transitions
+from .transitions import SpeechSpan, Transition, compose_timeline, fit_to_starts, plan_transitions
 
 console = Console()
 
@@ -125,6 +125,7 @@ class Renderer:
         settings: RenderSettings | None = None,
         no_voice: bool = False,
         line_timings: dict[str, list[tuple[float, float]]] | None = None,
+        start_offset: float = 0.0,
     ) -> None:
         self.script = script
         self.config = config
@@ -133,6 +134,8 @@ class Renderer:
         self.no_voice = no_voice
         # シーンごとの各行の音声が鳴る区間。あれば字幕をナレーションに合わせて表示する
         self.line_timings = line_timings or {}
+        # 書き出す最初のシーンの、本来の動画での開始時刻（--scene で途中から書き出すときにBGMの位置を合わせる）
+        self.start_offset = start_offset
         # 書き出したシーンの (シーン, 開始秒, 終了秒, そのシーンへの切り替え)。アフレコ用タイムテーブルに使う
         self.timeline: list[tuple[SceneSpec, float, float, Transition]] = []
 
@@ -153,6 +156,11 @@ class Renderer:
 
         # 字幕の表示区間を決めるため、クリップを作る前にトランジションを決める
         plans = plan_transitions(scenes, self.script.video, self._speech_spans(scenes, audio_map))
+        # startを指定したシーンが指定時刻に始まるよう、クロスフェードの重なりを考えて直前のシーンの長さを直す
+        fixed_starts = self._fixed_starts(scenes)
+        durations = fit_to_starts([scene.duration for scene in scenes], plans, fixed_starts)
+        for scene, duration in zip(scenes, durations):
+            scene.duration = duration
         clips: list[VideoClip] = []
         for i, scene in enumerate(scenes):
             # クロスフェードで前後のシーンと重なる区間は字幕を出さない
@@ -160,6 +168,10 @@ class Renderer:
             clip = self._build_scene_clip(
                 scene, audio_map, subtitle_window=(plans[i].overlap, scene.duration - next_overlap)
             )
+            next_fixed = i + 1 < len(scenes) and fixed_starts[i + 1] is not None
+            if next_fixed and abs(clip.duration - scene.duration) > 1e-3:
+                # 次のシーンの開始時刻がずれないよう、動画素材の長さではなく決めた長さにそろえる
+                clip = clip.with_duration(scene.duration)
             clips.append(clip)
 
         # 毎フレーム合成（"compose"連結）は遅いので、トランジション区間だけ混ぜる独自の連結を使う
@@ -252,6 +264,22 @@ class Renderer:
             )
         return selected
 
+    def _fixed_starts(self, scenes: list[SceneSpec]) -> list[float | None]:
+        """各シーンの、書き出す動画の先頭から見た開始時刻（startが無ければNone）。
+
+        --scene で飛び飛びに選んだ場合、間のシーンが抜けた箇所より後ろは開始時刻を合わせない。
+        """
+        index = {scene.id: i for i, scene in enumerate(self.script.scenes)}
+        fixed: list[float | None] = [None]
+        contiguous = True
+        for prev, scene in zip(scenes, scenes[1:]):
+            contiguous = contiguous and index[scene.id] == index[prev.id] + 1
+            if scene.start is not None and contiguous:
+                fixed.append(scene.start - self.start_offset)
+            else:
+                fixed.append(None)
+        return fixed
+
     def _speech_spans(self, scenes: list[SceneSpec], audio_map: dict[str, Path]) -> dict[str, SpeechSpan]:
         """各シーンでナレーションが鳴る区間（シーン内の開始秒, 終了秒）を求める。"""
         margin_before = self.config.voice_margin_before if self.config else 0.0
@@ -342,7 +370,7 @@ class Renderer:
                 voice = concatenate_audioclips(audio_clips)
 
             clip = clip.with_audio(voice)
-        elif not self.no_voice:
+        elif not self.no_voice and scene.voiceover.strip():
             console.log(f"[yellow]音声が見つかりません: {scene.id}[/]")
 
         # テキストオーバーレイを追加
@@ -756,23 +784,39 @@ class Renderer:
         return None
 
     def _apply_bgm(self, clip):
-        bgm_path = self.script.video.bgm
+        video = self.script.video
+        bgm_path = video.bgm
         if not bgm_path:
             return clip
         if not Path(bgm_path).exists():
             console.log(f"[yellow]BGMファイルが見つかりません: {bgm_path}[/]")
             return clip
-        bgm_clip = _load_media(
-            lambda: AudioFileClip(str(bgm_path)).with_volume_scaled(0.4), "video", "BGM", bgm_path
-        )
-        if bgm_clip.duration < clip.duration:
+        bgm_clip = _load_media(lambda: AudioFileClip(str(bgm_path)), "video", "BGM", bgm_path)
+        # BGMファイルの再生開始位置（--scene で途中から書き出すときはその分だけ進める）
+        offset = video.bgm_start + self.start_offset
+        end = offset + clip.duration
+        if bgm_clip.duration < end and video.bgm_loop:
             # BGMが動画より短い場合は繰り返して動画の長さに合わせる
             console.log(
                 f"[cyan]BGM ({bgm_clip.duration:.2f}秒) を動画の長さ ({clip.duration:.2f}秒) までループします[/]"
             )
-            bgm_clip = bgm_clip.with_effects([AudioLoop(duration=clip.duration)])
-        else:
-            bgm_clip = bgm_clip.subclipped(0, clip.duration)
+            bgm_clip = bgm_clip.with_effects([AudioLoop(duration=end)])
+        if offset >= bgm_clip.duration - 0.01:
+            console.log(f"[yellow]BGMの再生開始位置 ({offset:.2f}秒) がBGMの長さを超えているため、BGMを付けません[/]")
+            return clip
+        if bgm_clip.duration < end:
+            console.log(f"[yellow]BGMが動画より短いため、{bgm_clip.duration - offset:.2f}秒以降はBGMなしになります[/]")
+        bgm_clip = bgm_clip.subclipped(offset, min(end, bgm_clip.duration))
+
+        if video.bgm_volume != 1.0:
+            bgm_clip = bgm_clip.with_volume_scaled(video.bgm_volume)
+        effects = []
+        if video.bgm_fade_in > 0:
+            effects.append(AudioFadeIn(min(video.bgm_fade_in, bgm_clip.duration)))
+        if video.bgm_fade_out > 0:
+            effects.append(AudioFadeOut(min(video.bgm_fade_out, bgm_clip.duration)))
+        if effects:
+            bgm_clip = bgm_clip.with_effects(effects)
 
         if clip.audio:
             mixed = CompositeAudioClip([clip.audio, bgm_clip])

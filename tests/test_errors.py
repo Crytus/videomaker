@@ -89,10 +89,10 @@ def test_script_yaml_syntax_error(tmp_path: Path) -> None:
 
 
 def test_script_missing_required_fields(tmp_path: Path) -> None:
-    path = _write(tmp_path / "story.yaml", "video: {}\nscenes:\n  - id: s1\n    image: a.png\n")
+    path = _write(tmp_path / "story.yaml", "video: {}\nscenes:\n  - image: a.png\n")
     with pytest.raises(ScriptError) as info:
         parse_script(path)
-    assert "scenes.0.voiceover: 必須項目がありません" in str(info.value)
+    assert "scenes.0.id: 必須項目がありません" in str(info.value)
 
 
 def test_script_custom_validator_message(tmp_path: Path) -> None:

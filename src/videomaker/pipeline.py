@@ -15,6 +15,7 @@ from .models import SceneSpec, VideoScript
 from .renderer import Renderer, RenderSettings
 from .script_parser import parse_script
 from .textsplit import split_text_lines
+from .timeline import resolve_durations
 from .transitions import TRANSITION_NAMES, Transition
 from .voicebox import VoiceboxClient
 
@@ -85,6 +86,9 @@ class VideoPipeline:
         if self.no_voice:
             console.log("[cyan]音声なしモードのため、Voiceboxの疎通確認をスキップします[/]")
             return
+        if not any(scene.voiceover.strip() for scene in script.scenes):
+            console.log("[cyan]ナレーションのあるシーンが無いため、Voiceboxの疎通確認をスキップします[/]")
+            return
         client = self._voice_client()
         if not client.healthcheck():
             console.log("[yellow]Voiceboxヘルスチェックに失敗しました[/]")
@@ -101,8 +105,8 @@ class VideoPipeline:
         """レンダリングを実行する。"""
         script = self.script
         no_voice = self.no_voice
-        # 音声なしモードではVoiceboxに接続しない
-        client = None if no_voice else self._voice_client()
+        # 音声なしモードやナレーションの無いシーンだけの場合はVoiceboxに接続しない（必要になったときに作る）
+        client = None
         audio_map: dict[str, Path] = {}
         # 1行ずつ合成したシーンの、各行の音声が鳴る区間（シーン内の開始秒, 終了秒）。字幕を音声に合わせるのに使う
         line_timings: dict[str, list[tuple[float, float]]] = {}
@@ -122,14 +126,19 @@ class VideoPipeline:
                 from moviepy.editor import AudioFileClip, concatenate_audioclips
                 AudioClip = None
 
+        # シーンID → ナレーションに必要な長さ（前後の無音を含む）。シーンの長さを決めるのに使う
+        narration: dict[str, float] = {}
         for scene in script.scenes:
-            if scene_ids and scene.id not in scene_ids:
+            if not scene.voiceover.strip():
                 continue
-            if no_voice:
+            if no_voice or (scene_ids and scene.id not in scene_ids):
+                # 音声を作らないシーンは文字数から見積もる（書き出さないシーンは開始時刻の計算にだけ使う）
                 if scene.duration is None:
-                    scene.duration = self._estimate_duration(scene)
+                    narration[scene.id] = self._estimate_duration(scene, log=no_voice)
                 continue
-            voice =scene.voice_override.voice if scene.voice_override else script.video.voice
+            if client is None:
+                client = self._voice_client()
+            voice = scene.voice_override.voice if scene.voice_override else script.video.voice
             speed = scene.voice_override.speed if scene.voice_override else None
             pitch = scene.voice_override.pitch if scene.voice_override else None
 
@@ -211,31 +220,39 @@ class VideoPipeline:
                     pitch=pitch,
                 )
 
-            # durationが未指定の場合は音声ファイルの長さを使い、
-            # 指定されていてもナレーションより短い場合は、途中で切れないよう延長する
+            # ナレーションに必要な長さ（音声の長さ + 前後の無音）
             audio_path = audio_map[scene.id]
             if audio_path.exists():
                 audio_clip = _open_audio(AudioFileClip, audio_path, scene.id)
                 base_duration = audio_clip.duration
                 audio_clip.close()
-
-                # 無音の時間を追加
-                needed = base_duration + margin_before + margin_after
-                if scene.duration is None:
-                    scene.duration = needed
-                    if margin_before > 0 or margin_after > 0:
-                        console.log(f"[cyan]シーン {scene.id} のdurationを音声長から設定: {base_duration:.2f}秒 + 無音 {margin_before:.2f}秒(前) + {margin_after:.2f}秒(後) = {scene.duration:.2f}秒[/]")
-                    else:
-                        console.log(f"[cyan]シーン {scene.id} のdurationを音声長から設定: {scene.duration:.2f}秒[/]")
-                elif scene.duration < needed - 0.01:
+                narration[scene.id] = base_duration + margin_before + margin_after
+                if scene.duration is None and scene.start is None:
                     console.log(
-                        f"[yellow]シーン {scene.id} のduration ({scene.duration:.2f}秒) がナレーション"
-                        f"（前後の無音を含めて {needed:.2f}秒）より短いため、{needed:.2f}秒に延長しました[/]"
+                        f"[cyan]シーン {scene.id} のナレーション: {base_duration:.2f}秒"
+                        f" + 無音 {margin_before:.2f}秒(前) + {margin_after:.2f}秒(後)"
+                        f" = {narration[scene.id]:.2f}秒[/]"
                     )
-                    scene.duration = needed
+
+        # 各シーンの長さを決める（start > duration > ナレーション > 動画素材 > BGMの終わり の順）
+        starts = resolve_durations(
+            script.scenes, narration, self._media_lengths(narration), self._bgm_remaining()
+        )
+        # --scene で途中から書き出すときは、最初のシーンの開始時刻からBGMを再生する
+        start_offset = 0.0
+        if scene_ids:
+            for scene, start in zip(script.scenes, starts):
+                if scene.id in scene_ids:
+                    start_offset = start
+                    break
 
         renderer = Renderer(
-            script, config=self.config, settings=settings, no_voice=no_voice, line_timings=line_timings
+            script,
+            config=self.config,
+            settings=settings,
+            no_voice=no_voice,
+            line_timings=line_timings,
+            start_offset=start_offset,
         )
         result = renderer.render(
             output_path=output_path,
@@ -246,22 +263,62 @@ class VideoPipeline:
             self._print_timetable(renderer.timeline)
         return result
 
-    def _estimate_duration(self, scene: SceneSpec) -> float:
+    def _estimate_duration(self, scene: SceneSpec, log: bool = True) -> float:
         """音声なしモードで、ナレーションの文字数からシーン長を見積もる。
 
         音声ありの場合と同じく、行間の間隔と前後の無音（voice_margin_*）も加える。
         """
         lines = split_text_lines(scene.voiceover, self.config.max_line_chars)
+        if not lines:
+            return 0.0
         # 空白は読み上げ時間に含めない
         chars = sum(len("".join(line.split())) for line in lines)
         speech = max(chars / self.config.no_voice_chars_per_second, self.config.no_voice_min_duration)
         interval = max(len(lines) - 1, 0) * self.config.subtitle_line_interval
         margin = self.config.voice_margin_before + self.config.voice_margin_after
         duration = speech + interval + margin
-        console.log(
-            f"[cyan]シーン {scene.id} のdurationを文字数から見積もり: {chars}文字 -> {duration:.2f}秒[/]"
-        )
+        if log:
+            console.log(
+                f"[cyan]シーン {scene.id} のdurationを文字数から見積もり: {chars}文字 -> {duration:.2f}秒[/]"
+            )
         return duration
+
+    def _media_lengths(self, narration: dict[str, float]) -> dict[str, float]:
+        """長さの指定もナレーションも無い動画素材シーンについて、動画ファイルの長さを調べる。"""
+        lengths: dict[str, float] = {}
+        for scene in self.script.scenes:
+            if scene.video is None or scene.duration is not None or scene.id in narration:
+                continue
+            if not Path(scene.video).exists():
+                continue
+            try:
+                from moviepy import VideoFileClip
+            except ImportError:
+                from moviepy.editor import VideoFileClip
+            try:
+                clip = VideoFileClip(str(scene.video), audio=False)
+            except Exception as exc:
+                raise AssetError(f"動画ファイルを読み込めません ({scene.id}): {scene.video} ({exc})") from exc
+            try:
+                lengths[scene.id] = clip.duration
+            finally:
+                clip.close()
+        return lengths
+
+    def _bgm_remaining(self) -> float | None:
+        """動画の先頭から見た、BGMの残りの長さ（BGMが無い場合はNone）。"""
+        video = self.script.video
+        if not video.bgm or not Path(video.bgm).exists():
+            return None
+        try:
+            from moviepy import AudioFileClip
+        except ImportError:
+            from moviepy.editor import AudioFileClip
+        clip = _open_audio(AudioFileClip, Path(video.bgm), "BGM")
+        try:
+            return clip.duration - video.bgm_start
+        finally:
+            clip.close()
 
     def _print_timetable(self, timeline: list[tuple[SceneSpec, float, float, Transition]]) -> None:
         """アフレコ用に、各シーンの開始・終了時刻とナレーションを一覧表示する。

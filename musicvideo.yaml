@@ -1,0 +1,51 @@
+# ミュージックビデオのサンプル
+# BGM（曲）に合わせて、各シーンを start で指定した時刻に切り替える。
+# ナレーション（voiceover）は書かず、歌詞は subtitle、曲名などは teletext で表示する。
+video:
+  width: 1920
+  height: 1080
+  fps: 30
+  bgm: assets/sounds/BGM2-1.wav
+  bgm_volume: 1.0          # 曲が主役なので100%で再生（既定は0.4）
+  bgm_start: 0             # 曲のどの位置から使うか（例: "0:30" で30秒目から）
+  bgm_fade_in: 1.0         # 冒頭1秒でフェードイン
+  bgm_fade_out: 3.0        # 最後の3秒でフェードアウト
+  bgm_loop: false          # 曲が終わったら繰り返さない
+  transition: crossfade
+  transition_duration: 1.0
+  subtitle:
+    position: bottom
+    style:
+      fill: "#FFFFFF"
+      stroke: "#000000"
+      padding: 32
+      background: "#00000080"
+scenes:
+  - id: title
+    image: assets/images/DSC00052.JPG
+    subtitle: ""                     # 歌詞なし
+    teletext:
+      text: 八ヶ岳の春
+      position: center
+      style:
+        font_size: 96
+  - id: verse1
+    image: assets/images/DSC00042.JPG
+    start: "0:06"                    # 「分:秒」でも秒数（6）でも指定できる
+    subtitle: |
+      雪解けの水が　小川を流れて
+      春の訪れを　告げている
+  - id: verse2
+    image: assets/images/DSC00056.JPG
+    start: "0:14"
+    subtitle: |
+      見上げる空に　白い峰
+      遠く続く　八ヶ岳
+  - id: ending
+    image: assets/images/DSC00059.bmp
+    start: "0:22"
+    duration: 8                      # 最後のシーン。省略するとBGMの終わりまで表示する
+    subtitle: ""
+    teletext:
+      text: おわり
+      position: bottom_right
