@@ -138,8 +138,38 @@ class Renderer:
         self.start_offset = start_offset
         # 書き出したシーンの (シーン, 開始秒, 終了秒, そのシーンへの切り替え)。アフレコ用タイムテーブルに使う
         self.timeline: list[tuple[SceneSpec, float, float, Transition]] = []
+        # 書き出し中に開いた素材ファイル（ffmpegの読み込みプロセスを持つ）。書き出し後にまとめて閉じる
+        self._opened_media: list = []
 
     def render(
+        self,
+        *,
+        output_path: Path,
+        scene_ids: Iterable[str] | None,
+        audio_map: dict[str, Path],
+    ) -> Path:
+        try:
+            return self._render(output_path=output_path, scene_ids=scene_ids, audio_map=audio_map)
+        finally:
+            # 開いた素材を明示的に閉じる。閉じずにおくと、Python終了時のガベージコレクションで
+            # ffmpegプロセスを片付けようとして「ハンドルが無効です」(WinError 6) が表示されることがある
+            self._close_opened_media()
+
+    def _open_media(self, loader, scene_id: str, kind: str, path: Path):
+        """素材ファイルを読み込み、書き出し後に閉じられるよう記録する。"""
+        clip = _load_media(loader, scene_id, kind, path)
+        self._opened_media.append(clip)
+        return clip
+
+    def _close_opened_media(self) -> None:
+        for clip in self._opened_media:
+            try:
+                clip.close()
+            except (OSError, AttributeError):
+                pass  # クローズ時のエラーは無視
+        self._opened_media.clear()
+
+    def _render(
         self,
         *,
         output_path: Path,
@@ -311,7 +341,7 @@ class Renderer:
                 scene.id, "画像", scene.image,
             )
         elif scene.video:
-            clip = _load_media(lambda: VideoFileClip(str(scene.video)), scene.id, "動画", scene.video)
+            clip = self._open_media(lambda: VideoFileClip(str(scene.video)), scene.id, "動画", scene.video)
             # リサイズ
             clip = clip.resized((self.script.video.width, self.script.video.height))
             # 長さ調整: 指定時間と実際の長さの差が5%以内の場合は実際の長さを使用
@@ -333,7 +363,7 @@ class Renderer:
 
         audio_path = audio_map.get(scene.id)
         if audio_path and audio_path.exists():
-            voice = _load_media(lambda: AudioFileClip(str(audio_path)), scene.id, "音声", audio_path)
+            voice = self._open_media(lambda: AudioFileClip(str(audio_path)), scene.id, "音声", audio_path)
 
             # 音量を調整（個別設定 > config > デフォルト）
             volume = (
@@ -791,7 +821,7 @@ class Renderer:
         if not Path(bgm_path).exists():
             console.log(f"[yellow]BGMファイルが見つかりません: {bgm_path}[/]")
             return clip
-        bgm_clip = _load_media(lambda: AudioFileClip(str(bgm_path)), "video", "BGM", bgm_path)
+        bgm_clip = self._open_media(lambda: AudioFileClip(str(bgm_path)), "video", "BGM", bgm_path)
         # BGMファイルの再生開始位置（--scene で途中から書き出すときはその分だけ進める）
         offset = video.bgm_start + self.start_offset
         end = offset + clip.duration

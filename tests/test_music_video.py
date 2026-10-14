@@ -263,3 +263,46 @@ def test_apply_bgm_without_loop_stops_at_end(tmp_path: Path) -> None:
     # ループしない場合、BGM（6秒）より後は無音
     assert clip.audio.duration == pytest.approx(6.0)
 
+
+def test_render_closes_opened_media(tmp_path: Path, monkeypatch) -> None:
+    # 書き出し後にBGMなどの読み込みを閉じておかないと、Python終了時に
+    # 「ハンドルが無効です」(WinError 6) が表示されることがある
+    opened: list = []
+    original = Renderer._open_media
+
+    def spy(self, *args):
+        clip = original(self, *args)
+        opened.append(clip)
+        return clip
+
+    monkeypatch.setattr(Renderer, "_open_media", spy)
+    script_path = _write_mv_script(tmp_path)
+    VideoPipeline(script_path, config=AppConfig(video_encoder="cpu")).render(output_path=tmp_path / "out.mp4")
+
+    assert opened  # BGMを開いている
+    assert all(clip.reader is None for clip in opened)
+
+
+def test_render_closes_opened_media_on_failure(tmp_path: Path, monkeypatch) -> None:
+    from videomaker.errors import RenderError
+
+    opened: list = []
+    original = Renderer._open_media
+
+    def spy(self, *args):
+        clip = original(self, *args)
+        opened.append(clip)
+        return clip
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("書き出し失敗")
+
+    monkeypatch.setattr(Renderer, "_open_media", spy)
+    monkeypatch.setattr("moviepy.VideoClip.write_videofile", fail)
+    script_path = _write_mv_script(tmp_path)
+    with pytest.raises(RenderError):
+        VideoPipeline(script_path, config=AppConfig(video_encoder="cpu")).render(output_path=tmp_path / "out.mp4")
+
+    # 書き出しに失敗しても閉じる
+    assert opened
+    assert all(clip.reader is None for clip in opened)
