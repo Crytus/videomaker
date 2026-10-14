@@ -48,7 +48,7 @@ from rich.console import Console
 from .config import AppConfig
 from .errors import AssetError, RenderError, VideoMakerError
 from .models import SceneSpec, SubtitleStyle, VideoScript, parse_color
-from .textsplit import split_text_lines
+from .textsplit import split_line, split_text_lines
 from .transitions import SpeechSpan, Transition, compose_timeline, fit_to_starts, plan_transitions
 
 console = Console()
@@ -335,15 +335,16 @@ class Renderer:
         """シーンのクリップを作る。subtitle_windowは字幕を表示する区間（シーン内の開始秒, 終了秒）。"""
         if scene.image:
             clip = _load_media(
-                lambda: ImageClip(str(scene.image), duration=scene.duration).resized(
-                    (self.script.video.width, self.script.video.height)
+                lambda: _fit_cover(
+                    ImageClip(str(scene.image), duration=scene.duration),
+                    (self.script.video.width, self.script.video.height),
                 ),
                 scene.id, "画像", scene.image,
             )
         elif scene.video:
             clip = self._open_media(lambda: VideoFileClip(str(scene.video)), scene.id, "動画", scene.video)
-            # リサイズ
-            clip = clip.resized((self.script.video.width, self.script.video.height))
+            # アスペクト比を保ったまま中央を切り取ってリサイズ
+            clip = _fit_cover(clip, (self.script.video.width, self.script.video.height))
             # 長さ調整: 指定時間と実際の長さの差が5%以内の場合は実際の長さを使用
             duration_diff = abs(clip.duration - scene.duration)
             if duration_diff / scene.duration <= 0.05:
@@ -527,7 +528,7 @@ class Renderer:
             background_default = self.config.subtitle_background if self.config else None
 
             # テキストを行ごとに分割（空行は除外。長い行は句読点を優先して自動分割）
-            max_chars = self.config.max_line_chars if self.config else 30
+            max_chars = self.script.video.subtitle_line_chars(self.config.max_line_chars if self.config else 30)
             lines = split_text_lines(text, max_chars)
             if not lines:
                 return None
@@ -650,8 +651,15 @@ class Renderer:
                 else (self.config.teletext_stroke_width if self.config else 3)
             )
 
-            # テキストを行ごとに分割
+            # テキストを行ごとに分割（1行の最大文字数を超える行は折り返す。シーンの指定 > 動画全体の指定）
             lines = [line.strip() for line in teletext.text.split('\n') if line.strip()]
+            max_chars = (
+                teletext.max_line_chars
+                if teletext.max_line_chars is not None
+                else self.script.video.teletext_max_line_chars
+            )
+            if max_chars:
+                lines = [part for line in lines for part in split_line(line, max_chars)]
 
             background_default = self.config.teletext_background if self.config else None
 
@@ -854,6 +862,37 @@ class Renderer:
             mixed = bgm_clip
         clip = clip.with_audio(mixed)
         return clip
+
+
+def _center_crop_box(src_size: tuple[int, int], dst_size: tuple[int, int]) -> tuple[int, int, int, int]:
+    """出力のアスペクト比に合わせて、素材の中央を切り取る範囲 (x1, y1, x2, y2) を返す。
+
+    素材の方が横長なら左右を、縦長なら上下を均等に削る。比率が同じなら全体を返す。
+    """
+    src_w, src_h = src_size
+    dst_w, dst_h = dst_size
+    # 整数演算で比較して、浮動小数の誤差による1pxの無駄な切り取りを防ぐ
+    if src_w * dst_h > dst_w * src_h:
+        # 素材の方が横長: 高さを基準に幅を決めて左右を削る
+        crop_w = max(1, min(src_w, round(src_h * dst_w / dst_h)))
+        x1 = (src_w - crop_w) // 2
+        return x1, 0, x1 + crop_w, src_h
+    if src_w * dst_h < dst_w * src_h:
+        # 素材の方が縦長: 幅を基準に高さを決めて上下を削る
+        crop_h = max(1, min(src_h, round(src_w * dst_h / dst_w)))
+        y1 = (src_h - crop_h) // 2
+        return 0, y1, src_w, y1 + crop_h
+    return 0, 0, src_w, src_h
+
+
+def _fit_cover(clip, size: tuple[int, int]):
+    """クリップを変形させずに出力サイズへ合わせる（はみ出す部分は中央を基準に切り取る）。"""
+    x1, y1, x2, y2 = _center_crop_box(tuple(clip.size), size)
+    if (x1, y1, x2, y2) != (0, 0, clip.size[0], clip.size[1]):
+        clip = clip.cropped(x1=x1, y1=y1, x2=x2, y2=y2)
+    if tuple(clip.size) != tuple(size):
+        clip = clip.resized(size)
+    return clip
 
 
 def _load_media(loader, scene_id: str, kind: str, path: Path):

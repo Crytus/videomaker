@@ -94,3 +94,22 @@ def test_subtitle_not_split_when_disabled() -> None:
     renderer = Renderer(script, config=AppConfig(max_line_chars=0))
     clip = renderer._create_subtitle_clip(script.scenes[0], text=script.scenes[0].voiceover)
     assert not isinstance(clip, list)
+
+
+def test_script_max_line_chars_overrides_config() -> None:
+    # シナリオの video.max_line_chars が config より優先される（縦動画向けに短くする）
+    text = "山道からはずっと八ヶ岳が望めます。"
+    script = VideoScript.model_validate({
+        "video": {"max_line_chars": 10},
+        "scenes": [{"id": "s1", "image": "a.png", "duration": 5.0, "voiceover": text}],
+    })
+    renderer = Renderer(script, config=AppConfig(max_line_chars=30, subtitle_line_interval=0.0))
+    clips = renderer._create_subtitle_clip(script.scenes[0], text=text)
+    assert isinstance(clips, list) and len(clips) == 2
+
+
+def test_script_max_line_chars_zero_disables_split() -> None:
+    script = VideoScript.model_validate({"video": {"max_line_chars": 0}, "scenes": [{"id": "s1", "image": "a.png"}]})
+    assert script.video.subtitle_line_chars(30) == 0
+    script = VideoScript.model_validate({"video": {}, "scenes": [{"id": "s1", "image": "a.png"}]})
+    assert script.video.subtitle_line_chars(30) == 30

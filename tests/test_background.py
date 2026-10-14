@@ -94,3 +94,22 @@ def test_subtitle_background_fits_text() -> None:
     assert text.size[0] == 640 - 200
     assert box.size[0] < 300
     assert box.start == text.start and box.duration == text.duration
+
+
+def _teletext_lines(script) -> int:
+    """テロップの表示行数（単一行ならクリップ1つ、複数行なら合成クリップの子の数）。"""
+    result = Renderer(script, config=AppConfig())._create_teletext_clip(script.scenes[0])
+    return len(result.clips) if hasattr(result, "clips") else 1
+
+
+def test_teletext_wraps_by_video_setting() -> None:
+    script = _script({"text": "飯盛山は八ヶ岳を望む山です"})
+    assert _teletext_lines(script) == 1
+    script.video.teletext_max_line_chars = 8
+    assert _teletext_lines(script) == 2
+
+
+def test_teletext_scene_setting_overrides_video() -> None:
+    script = _script({"text": "飯盛山は八ヶ岳を望む山です", "max_line_chars": 0})
+    script.video.teletext_max_line_chars = 8
+    assert _teletext_lines(script) == 1

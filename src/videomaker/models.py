@@ -130,6 +130,9 @@ class TeletextConfig(BaseModel):
         "center",
     ] = "top_left"
     style: SubtitleStyle = Field(default_factory=SubtitleStyle)
+    max_line_chars: Optional[int] = Field(
+        None, ge=0, description="1行の最大文字数（video.teletext_max_line_chars より優先。0で分割しない）"
+    )
 
 
 class VoiceOverride(BaseModel):
@@ -244,6 +247,14 @@ class VideoSpec(BaseModel):
         None, description="Voiceboxのプリセット名"
     )
     subtitle: SubtitleConfig = Field(default_factory=SubtitleConfig)
+    max_line_chars: Optional[int] = Field(
+        None,
+        ge=0,
+        description="ナレーション・字幕の1行の最大文字数（config の max_line_chars より優先。0で分割しない）",
+    )
+    teletext_max_line_chars: Optional[int] = Field(
+        None, ge=0, description="テロップの1行の最大文字数。超える行は自動で折り返す（未指定・0で折り返さない）"
+    )
     transition: TransitionType = Field("cut", description="シーン切り替えのトランジション（全シーン共通の既定値）")
     transition_duration: float = Field(0.5, gt=0, description="トランジションの長さ（秒）の既定値")
     output_file: Optional[Path] = Field(
@@ -254,6 +265,10 @@ class VideoSpec(BaseModel):
     bgm_fade_in: float = Field(0.0, ge=0.0, description="BGMのフェードインの長さ（秒）")
     bgm_fade_out: float = Field(0.0, ge=0.0, description="BGMのフェードアウトの長さ（秒）")
     bgm_loop: bool = Field(True, description="BGMが動画より短い場合に繰り返すか")
+
+    def subtitle_line_chars(self, default: int) -> int:
+        """ナレーション・字幕の1行の最大文字数を返す（シナリオの指定 > config の既定値）。"""
+        return self.max_line_chars if self.max_line_chars is not None else default
 
     @field_validator("bgm_start", mode="before")
     @classmethod

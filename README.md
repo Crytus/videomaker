@@ -407,6 +407,8 @@ options:
 | `transition` | `cut` | シーン切り替えのトランジションの既定値（`cut` / `fade` / `crossfade`。[トランジション](#シーン切り替えのトランジション)参照） |
 | `transition_duration` | `0.5` | トランジションの長さ（秒）の既定値 |
 | `subtitle` | | 字幕の設定（下記） |
+| `max_line_chars` | `null` | ナレーション・字幕の1行の最大文字数。指定すると config の `max_line_chars` より優先（`0` で分割しない）。縦動画など画面幅が狭いシナリオで小さめにする |
+| `teletext_max_line_chars` | `null` | テロップの1行の最大文字数。超える行は自動で折り返す（`null`・`0` なら折り返さない）。シーンの `teletext.max_line_chars` が優先 |
 
 #### `video.subtitle`
 
@@ -479,6 +481,7 @@ scenes:
 | `text` | （必須） | テロップの文字。複数行で書くと縦に並べて表示 |
 | `position` | `top_left` | `top_left` / `top_right` / `bottom_left` / `bottom_right` / `center` |
 | `style` | | `style` 参照。`fill` の既定値は白なので、色を付けたい場合は指定する（例: `"#FFE066"`） |
+| `max_line_chars` | `null` | 1行の最大文字数。超える行は自動で折り返す。`null` なら `video.teletext_max_line_chars`、`0` なら折り返さない |
 
 #### `voice_override`（シーンごとの声の上書き）
 
@@ -597,6 +600,8 @@ scenes:
 - `|` で自分で改行した行も、`max_line_chars` を超えていれば分割されます。分割したくない場合は `max_line_chars: 0` にしてください。
 - `>` は改行を半角空白に置き換えるため、日本語の文字に挟まれた半角空白は取り除きます（英単語の間の空白は残ります）。
 - 音声なしモードの長さの見積もり（行間の数）にも、分割後の行数が使われます。
+- シナリオの `video.max_line_chars` を指定すると、config より優先されます。同じナレーションで横動画と縦動画を作るときは、縦動画のシナリオだけ小さい値にしてください（字幕の文字サイズ 48 で幅 1080px なら 18〜20文字程度が目安）。
+- テロップは既定では自動で折り返しません。`video.teletext_max_line_chars`（全シーン共通）またはシーンの `teletext.max_line_chars` を指定すると、同じ規則で折り返して複数行で表示します。
 
 ### シーン切り替えのトランジション
 
@@ -707,6 +712,8 @@ videomaker preview story.yaml --no-voice      # -> dist/story_novoice_preview.mp
 
 ### 2026-10
 
+- **画面幅に合わせた1行の文字数**: シナリオの `video.max_line_chars` でナレーション・字幕の1行の最大文字数を（config より優先して）指定できるようにした。テロップも `video.teletext_max_line_chars` / `teletext.max_line_chars` で自動で折り返せるようにした。
+- **画像・動画のアスペクト比を維持**: 素材と出力のアスペクト比が違う場合に引き伸ばさず、中央部分を切り取ってから出力サイズに合わせるようにした（横長の画像を縦動画に使うと左右が切れる）。
 - **ミュージックビデオ向けの機能を追加**: シーンの開始時刻を `start`（秒、または `"分:秒"`）で指定できるようにした。直前のシーンの長さは自動で決まり、クロスフェードでも開始時刻はずれない。`voiceover` を省略可能にし、最後のシーンは長さを省略すると BGM の終わりまで表示する。BGM の音量（`bgm_volume`）・再生開始位置（`bgm_start`）・フェードイン/アウト（`bgm_fade_in` / `bgm_fade_out`）・ループの有無（`bgm_loop`）を指定できるようにした。`--scene` で途中のシーンだけを書き出したときは、BGM をそのシーンの開始時刻の位置から再生する。動画素材のシーンは、`duration` を省略すると動画ファイルの長さになる。
 - **字幕・テロップの背景色**: `style.background`（半透明は `#RRGGBBAA`）、`background_opacity`、`background_padding` で、文字より少し大きい色付きの矩形を文字の後ろに敷けるようにした。config の `subtitle_background` / `teletext_background` で既定値も指定可能。あわせて、テロップの `top_right` / `bottom_*` 配置で文字が画面外にはみ出していた問題を修正。
 - **ナレーションとシーン・字幕のタイミングを修正**: `duration` がナレーションより短い場合に、画面が切り替わり音声が途中で切れていた問題を修正し、ナレーションが収まる長さまで自動で延長するようにした。1行ずつ音声合成した場合は、字幕を各行の音声に合わせて切り替えるようにした。

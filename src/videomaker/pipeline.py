@@ -143,7 +143,7 @@ class VideoPipeline:
             pitch = scene.voice_override.pitch if scene.voice_override else None
 
             # voiceoverを行ごとに分割（長い行は句読点を優先して自動分割。字幕と同じ分け方）
-            lines = split_text_lines(scene.voiceover, self.config.max_line_chars)
+            lines = split_text_lines(scene.voiceover, self.script.video.subtitle_line_chars(self.config.max_line_chars))
             line_interval = self.config.subtitle_line_interval if self.config else 0.0
 
             if len(lines) > 1 and line_interval > 0:
@@ -268,7 +268,7 @@ class VideoPipeline:
 
         音声ありの場合と同じく、行間の間隔と前後の無音（voice_margin_*）も加える。
         """
-        lines = split_text_lines(scene.voiceover, self.config.max_line_chars)
+        lines = split_text_lines(scene.voiceover, self.script.video.subtitle_line_chars(self.config.max_line_chars))
         if not lines:
             return 0.0
         # 空白は読み上げ時間に含めない
