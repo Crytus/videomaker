@@ -20,6 +20,8 @@ SENTENCE_END = "。．！？!?"
 CLAUSE_END = "、，,；;：:"
 CLOSERS = "」』）)】〕］]｝}〉》”’\"'"
 OPENERS = "「『（(【〔［[｛{〈《“‘"
+# ナレーション中の無音タグ（{無音 0.5}）の位置を表す文字（narration.py で使う私用領域の文字）
+PAUSE_MARK = ""
 # 行頭に来てはいけない文字
 NO_LINE_START = (
     CLOSERS + SENTENCE_END + CLAUSE_END + "ぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮヵヶー・…‥〜～"
@@ -92,6 +94,9 @@ def _boundary_score(text: str, pos: int) -> int:
     if mark in SENTENCE_END:
         return 5
     if mark in CLAUSE_END and not _is_number_separator(text, k):
+        return 4
+    if prev == PAUSE_MARK:
+        # 無音の直後は読点と同じくらい区切りやすい
         return 4
     if prev.isspace() or cur.isspace():
         return 3

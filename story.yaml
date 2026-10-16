@@ -4,6 +4,7 @@ video:
   fps: 30
   bgm: assets/sounds/BGM2-1.wav
   voice: narrator_metan
+  scene_interval: 0.5    # 冒頭で基本の間を指定（秒）
   subtitle:
     position: bottom
     style:
@@ -16,8 +17,10 @@ scenes:
     image: DSC00052.JPG
     voiceover: |
       春の山道には小鳥の声が響きます。
+      {無音 1.5}
       飯盛山は八ヶ岳を望むのに最良の山です。
       登山道を上っていくにつれて、八ヶ岳の展望が変わります。
+      {無音 1.5}
       ５月の連休の時期には、八ヶ岳には雪が残っています。
       飯盛山にはもう残雪はありません。
     teletext:
@@ -29,6 +32,7 @@ scenes:
 
   - id: river1
     image: DSC00042.JPG
+    interval: 2.5        # このシーンだけ個別に指定（基本より優先）
     teletext:
       text: 春の小川
       position: top_left
@@ -36,21 +40,23 @@ scenes:
         fill: "#FFE066"
         stroke: "#222222"
     voiceover: |
-      谷を抜ける風が、澄んだ川面を揺らします。
+      谷を抜ける風が、{無音 0.5}澄んだ川面を揺らします。
+      小川は静かに流れています。
     transition: cut
     voice_override:
       voice: narrator_tsumugi
       speed: 1.2
   - id: river2
-    image: DSC00042.JPG
+    image: カディンスキー.JPG
     teletext:
-      text: 春の小川
+      text: カディンスキーはとても変わった画風です。
       position: top_left
       style:
         fill: "#FFE066"
         stroke: "#222222"
     voiceover: |
-      とても気持ちの良い登山道です。
+      カディンスキーはとても変わった画風です。
+      とても気持ちの良い絵画です。
     transition: cut
     voice_override:
       voice: narrator_zunda

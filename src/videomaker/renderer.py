@@ -48,7 +48,8 @@ from rich.console import Console
 from .config import AppConfig
 from .errors import AssetError, RenderError, VideoMakerError
 from .models import SceneSpec, SubtitleStyle, VideoScript, parse_color
-from .textsplit import split_line, split_text_lines
+from .narration import split_narration
+from .textsplit import split_line
 from .transitions import SpeechSpan, Transition, compose_timeline, fit_to_starts, plan_transitions
 
 console = Console()
@@ -528,8 +529,9 @@ class Renderer:
             background_default = self.config.subtitle_background if self.config else None
 
             # テキストを行ごとに分割（空行は除外。長い行は句読点を優先して自動分割）
+            # {無音 秒数} は表示しない。行の分け方は音声合成と同じにして、各行の音声のタイミングと対応させる
             max_chars = self.script.video.subtitle_line_chars(self.config.max_line_chars if self.config else 30)
-            lines = split_text_lines(text, max_chars)
+            lines = [line.text for line in split_narration(text, max_chars)]
             if not lines:
                 return None
 

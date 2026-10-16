@@ -7,6 +7,8 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator, validator
 
+from .narration import check_pause_tags
+
 
 # シーン切り替えのトランジション種別
 # cut: 瞬間切り替え / fade: 黒を経由して切り替え / crossfade: 前のシーンに重ねて溶け込ませる
@@ -169,6 +171,9 @@ class SceneSpec(BaseModel):
     transition_duration: Optional[float] = Field(
         None, gt=0, description="トランジションの長さ（秒）。未指定ならvideo.transition_duration"
     )
+    interval: Optional[float] = Field(
+        None, ge=0, description="ナレーションが終わってから次のシーンに切り替わるまでの間（秒）。未指定ならvideo.scene_interval"
+    )
     kenburns: bool = False
     voice_override: Optional[VoiceOverride] = None
 
@@ -182,6 +187,13 @@ class SceneSpec(BaseModel):
     def _voiceover_none_to_empty(cls, value):
         # YAMLで「voiceover:」とだけ書いた場合（None）も空として扱う
         return "" if value is None else value
+
+    @field_validator("voiceover")
+    @classmethod
+    def _check_pause_tags(cls, value: str) -> str:
+        # {無音 0.5} の書式の誤りを早めに知らせる
+        check_pause_tags(value)
+        return value
 
     @validator("id")
     def _id_not_empty(cls, value: str) -> str:
@@ -257,6 +269,9 @@ class VideoSpec(BaseModel):
     )
     transition: TransitionType = Field("cut", description="シーン切り替えのトランジション（全シーン共通の既定値）")
     transition_duration: float = Field(0.5, gt=0, description="トランジションの長さ（秒）の既定値")
+    scene_interval: float = Field(
+        0.0, ge=0, description="ナレーションが終わってから次のシーンに切り替わるまでの間（秒）の既定値"
+    )
     output_file: Optional[Path] = Field(
         None, description="出力ファイル名（省略時はスクリプト名から自動生成）"
     )

@@ -3,7 +3,7 @@
 シーンの長さは次の優先順で決める。
 1. 次のシーンに start があれば、その時刻までの長さ（start が最優先）
 2. duration（ナレーションより短ければナレーションの長さまで延長）
-3. ナレーションの長さ（前後の無音を含む）
+3. ナレーションの長さ（前後の無音を含む）＋ 次のシーンへの切り替えの間（interval / video.scene_interval）
 4. 動画素材の長さ
 5. 最後のシーンでBGMがあれば、BGMの終わりまで
 """
@@ -25,12 +25,14 @@ def resolve_durations(
     narration: dict[str, float] | None = None,
     media: dict[str, float] | None = None,
     bgm_remaining: float | None = None,
+    default_interval: float = 0.0,
 ) -> list[float]:
     """全シーンの scene.duration を決め、各シーンの開始時刻（動画の先頭からの秒数）を返す。
 
     narration: シーンID → ナレーションに必要な長さ（前後の無音を含む）
     media: シーンID → 動画素材の長さ
     bgm_remaining: 動画の先頭から見たBGMの残りの長さ（BGMが無ければNone）
+    default_interval: ナレーションが終わってから次のシーンに切り替わるまでの間の既定値（video.scene_interval）
 
     開始時刻はクロスフェードによる重なりを考えない目安の値で、
     start を指定したシーンだけは正確な時刻になる。
@@ -74,6 +76,10 @@ def resolve_durations(
                 duration = needed
         elif needed > 0:
             duration = needed
+            # 次のシーンに切り替わる前に間をあける（最後のシーンは切り替えが無いので加えない）
+            interval = scene.interval if scene.interval is not None else default_interval
+            if next_scene is not None and interval > 0:
+                duration += interval
         elif scene.id in media:
             duration = media[scene.id]
         elif next_scene is None and bgm_remaining is not None:

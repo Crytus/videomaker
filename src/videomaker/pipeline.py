@@ -14,7 +14,7 @@ from .errors import AssetError, VideoMakerError
 from .models import SceneSpec, VideoScript
 from .renderer import Renderer, RenderSettings
 from .script_parser import parse_script
-from .textsplit import split_text_lines
+from .narration import split_narration, strip_pauses
 from .timeline import resolve_durations
 from .transitions import TRANSITION_NAMES, Transition
 from .voicebox import VoiceboxClient
@@ -143,30 +143,48 @@ class VideoPipeline:
             pitch = scene.voice_override.pitch if scene.voice_override else None
 
             # voiceoverを行ごとに分割（長い行は句読点を優先して自動分割。字幕と同じ分け方）
-            lines = split_text_lines(scene.voiceover, self.script.video.subtitle_line_chars(self.config.max_line_chars))
+            # 各行はさらに、音声合成するテキストと {無音 秒数} の無音に分ける
+            lines = split_narration(scene.voiceover, self.script.video.subtitle_line_chars(self.config.max_line_chars))
             line_interval = self.config.subtitle_line_interval if self.config else 0.0
+            with_pause = any(line.has_pause for line in lines)
 
-            if len(lines) > 1 and line_interval > 0:
-                # 複数行で行間間隔がある場合、各行を別々に合成して無音を挿入
-                console.log(f"[cyan]複数行音声を合成中: {scene.id} - {len(lines)}行、行間: {line_interval}秒[/]")
+            if with_pause or (len(lines) > 1 and line_interval > 0):
+                # 無音の指定があるか、複数行で行間間隔がある場合、テキストごとに合成して無音を挿入
+                if len(lines) > 1:
+                    console.log(f"[cyan]複数行音声を合成中: {scene.id} - {len(lines)}行、行間: {line_interval}秒[/]")
+                else:
+                    console.log(f"[cyan]無音を挟んで音声を合成中: {scene.id}[/]")
 
-                line_paths = []
-                for i, line in enumerate(lines):
-                    # 各行を音声合成（Voiceboxクライアント側でキャッシュされる）
-                    line_paths.append(
-                        client.synthesize(text=line, voice=voice, speed=speed, pitch=pitch)
-                    )
+                # 各行の (テキストの音声ファイル または 無音の秒数) の並び
+                line_items: list[list[Path | float]] = []
+                for line in lines:
+                    # テキストを音声合成（Voiceboxクライアント側でキャッシュされる）
+                    line_items.append([
+                        segment if isinstance(segment, float)
+                        else client.synthesize(text=segment, voice=voice, speed=speed, pitch=pitch)
+                        for segment in line.segments
+                    ])
 
-                # 各行の音声の長さから、字幕を表示するタイミングを求める
-                line_durations = []
-                for line_audio_path in line_paths:
-                    line_audio = _open_audio(AudioFileClip, line_audio_path, scene.id)
-                    line_durations.append(line_audio.duration)
-                    line_audio.close()
-                line_timings[scene.id] = _line_timings(line_durations, margin_before, line_interval)
+                # 各音声の長さから、字幕を表示するタイミングを求める
+                lengths: dict[Path, float] = {}
+                for item in (item for items in line_items for item in items):
+                    if isinstance(item, Path) and item not in lengths:
+                        audio = _open_audio(AudioFileClip, item, scene.id)
+                        lengths[item] = audio.duration
+                        audio.close()
+                line_timings[scene.id] = _segment_timings(
+                    [[("speech", lengths[item]) if isinstance(item, Path) else ("silence", item) for item in items]
+                     for items in line_items],
+                    margin_before,
+                    line_interval,
+                )
 
-                # 結合済み音声は、行ごとの音声ファイルと行間から決まる名前でキャッシュする
-                key_source = "|".join(str(path) for path in line_paths) + f"|{line_interval}"
+                # 結合済み音声は、音声ファイルと無音・行間から決まる名前でキャッシュする
+                # （無音の指定が無い場合は以前と同じ名前になる）
+                key_source = "|".join(
+                    str(item) if isinstance(item, Path) else f"silence:{item:g}"
+                    for items in line_items for item in items
+                ) + f"|{line_interval}"
                 key = hashlib.sha1(key_source.encode("utf-8")).hexdigest()
                 cache_dir = self.override_voice_cache or self.script.options.voice_cache_dir or Path(".cache/voice")
                 cache_dir.mkdir(parents=True, exist_ok=True)
@@ -176,19 +194,38 @@ class VideoPipeline:
                     console.log(f"[green]結合済み音声のキャッシュを使用: {scene.id}[/]")
                 else:
                     audio_clips = []
-                    for i, (line, line_audio_path) in enumerate(zip(lines, line_paths)):
-                        line_audio = _open_audio(AudioFileClip, line_audio_path, scene.id)
-                        audio_clips.append(line_audio)
-                        console.log(f"[green]  行{i+1}の音声を合成: '{line}' ({line_audio.duration:.2f}秒)[/]")
+                    fps = None
+                    # 無音は、先に音声を開いてそのサンプリングレートに合わせる
+                    pending_silence: list[float] = []
+
+                    def add_silence(seconds: float, label: str) -> None:
+                        if seconds <= 0:
+                            return
+                        if AudioClip:
+                            audio_clips.append(AudioClip(lambda t: 0, duration=seconds, fps=fps or 44100))
+                            console.log(f"[cyan]  {label}に {seconds}秒の無音を追加[/]")
+                        else:
+                            console.log(f"[yellow]AudioClipが利用できないため、{label}の無音を追加できません[/]")
+
+                    for i, (line, items) in enumerate(zip(lines, line_items)):
+                        for item in items:
+                            if isinstance(item, float):
+                                if fps is None:
+                                    pending_silence.append(item)
+                                else:
+                                    add_silence(item, "ナレーションの途中")
+                                continue
+                            line_audio = _open_audio(AudioFileClip, item, scene.id)
+                            if fps is None:
+                                fps = line_audio.fps
+                                for seconds in pending_silence:
+                                    add_silence(seconds, "ナレーションの先頭")
+                            audio_clips.append(line_audio)
+                        console.log(f"[green]  行{i+1}の音声を合成: '{line.text}'[/]")
 
                         # 最後の行以外は行間の無音を追加
                         if i < len(lines) - 1:
-                            if AudioClip:
-                                silence = AudioClip(lambda t: 0, duration=line_interval, fps=line_audio.fps or 44100)
-                                audio_clips.append(silence)
-                                console.log(f"[cyan]  行間に {line_interval}秒の無音を追加[/]")
-                            else:
-                                console.log(f"[yellow]AudioClipが利用できないため、行間の無音を追加できません[/]")
+                            add_silence(line_interval, "行間")
 
                     # 音声を連結（書き込み途中のファイルをキャッシュとして残さないよう一時名で書いてから置き換える）
                     combined_audio = concatenate_audioclips(audio_clips)
@@ -208,7 +245,7 @@ class VideoPipeline:
                         except:
                             pass
                     combined_audio.close()
-                    console.log(f"[green]複数行音声を結合しました: {scene.id} (合計: {len(lines)}行)[/]")
+                    console.log(f"[green]音声を結合しました: {scene.id} (合計: {len(lines)}行)[/]")
 
                 audio_map[scene.id] = combined_path
             else:
@@ -236,7 +273,11 @@ class VideoPipeline:
 
         # 各シーンの長さを決める（start > duration > ナレーション > 動画素材 > BGMの終わり の順）
         starts = resolve_durations(
-            script.scenes, narration, self._media_lengths(narration), self._bgm_remaining()
+            script.scenes,
+            narration,
+            self._media_lengths(narration),
+            self._bgm_remaining(),
+            default_interval=script.video.scene_interval,
         )
         # --scene で途中から書き出すときは、最初のシーンの開始時刻からBGMを再生する
         start_offset = 0.0
@@ -266,17 +307,19 @@ class VideoPipeline:
     def _estimate_duration(self, scene: SceneSpec, log: bool = True) -> float:
         """音声なしモードで、ナレーションの文字数からシーン長を見積もる。
 
-        音声ありの場合と同じく、行間の間隔と前後の無音（voice_margin_*）も加える。
+        音声ありの場合と同じく、行間の間隔と前後の無音（voice_margin_*）、{無音 秒数} の無音も加える。
         """
-        lines = split_text_lines(scene.voiceover, self.script.video.subtitle_line_chars(self.config.max_line_chars))
+        lines = split_narration(scene.voiceover, self.script.video.subtitle_line_chars(self.config.max_line_chars))
         if not lines:
             return 0.0
         # 空白は読み上げ時間に含めない
-        chars = sum(len("".join(line.split())) for line in lines)
+        chars = sum(len("".join(line.text.split())) for line in lines)
         speech = max(chars / self.config.no_voice_chars_per_second, self.config.no_voice_min_duration)
         interval = max(len(lines) - 1, 0) * self.config.subtitle_line_interval
         margin = self.config.voice_margin_before + self.config.voice_margin_after
-        duration = speech + interval + margin
+        # {無音 秒数} で指定した無音
+        pause = sum(line.pause_total for line in lines)
+        duration = speech + interval + margin + pause
         if log:
             console.log(
                 f"[cyan]シーン {scene.id} のdurationを文字数から見積もり: {chars}文字 -> {duration:.2f}秒[/]"
@@ -336,7 +379,7 @@ class VideoPipeline:
                 switch = ""
             else:
                 switch = f"{TRANSITION_NAMES[transition.kind]} {transition.duration:.2f}秒"
-            table.add_row(scene.id, _format_time(start), _format_time(end), switch, scene.voiceover.strip())
+            table.add_row(scene.id, _format_time(start), _format_time(end), switch, strip_pauses(scene.voiceover).strip())
         console.print(table)
 
     def _resolve_image_path(self, image_path: Path) -> Path | None:
@@ -403,9 +446,32 @@ def _line_timings(
 
     結合音声は「前の無音 + 行1 + 行間 + 行2 + ...」の順に並ぶ。
     """
+    return _segment_timings([[("speech", duration)] for duration in durations], margin_before, interval)
+
+
+def _segment_timings(
+    lines: list[list[tuple[str, float]]], margin_before: float, interval: float
+) -> list[tuple[float, float]]:
+    """各行の (種類, 長さ) の並びから、各行が鳴る区間（シーン内の開始秒, 終了秒）を求める。
+
+    種類は "speech"（音声）か "silence"（{無音 秒数} の無音）。行の区間は、その行の
+    最初の音声の始まりから最後の音声の終わりまで（行の前後の無音は含めない）。
+    結合音声は「前の無音 + 行1 + 行間 + 行2 + ...」の順に並ぶ。
+    """
     timings = []
     current = margin_before
-    for duration in durations:
-        timings.append((current, current + duration))
-        current += duration + interval
+    for i, items in enumerate(lines):
+        start = end = None
+        for kind, duration in items:
+            if kind == "speech":
+                if start is None:
+                    start = current
+                end = current + duration
+            current += duration
+        if start is None:
+            # 音声の無い行（通常は無い）は行の区間全体
+            start, end = current, current
+        timings.append((start, end))
+        if i < len(lines) - 1:
+            current += interval
     return timings
