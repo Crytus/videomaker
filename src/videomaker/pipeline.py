@@ -138,9 +138,11 @@ class VideoPipeline:
                 continue
             if client is None:
                 client = self._voice_client()
-            voice = scene.voice_override.voice if scene.voice_override else script.video.voice
-            speed = scene.voice_override.speed if scene.voice_override else None
-            pitch = scene.voice_override.pitch if scene.voice_override else None
+            # voice_overrideは指定した項目だけを上書きする（voiceを省略した場合はvideo.voiceを使う）
+            override = scene.voice_override
+            voice = (override.voice if override and override.voice else None) or script.video.voice
+            speed = override.speed if override else None
+            pitch = override.pitch if override else None
 
             # voiceoverを行ごとに分割（長い行は句読点を優先して自動分割。字幕と同じ分け方）
             # 各行はさらに、音声合成するテキストと {無音 秒数} の無音に分ける

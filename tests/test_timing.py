@@ -112,3 +112,35 @@ def test_render_keeps_longer_duration(tmp_path: Path, fake_voice) -> None:
     pipeline.render(output_path=tmp_path / "out.mp4")
     # ナレーション（0.4秒）より長いdurationはそのまま
     assert pipeline.script.scenes[0].duration == 4
+
+
+def test_voice_override_partial(tmp_path: Path, monkeypatch) -> None:
+    """voice_overrideでspeedだけ、voiceだけを指定した場合、残りはvideoの設定を使う。"""
+    calls = []
+
+    def synthesize(self, *, text, voice, speed=None, pitch=None):
+        calls.append((text, voice, speed))
+        path = self.cache_dir / f"{abs(hash(text))}.wav"
+        if not path.exists():
+            _write_wav(path, 0.2 * len(text))
+        return path
+
+    monkeypatch.setattr(voicebox_module.VoiceboxClient, "synthesize", synthesize)
+    Image.new("RGB", (64, 48), "navy").save(tmp_path / "bg.png")
+    script_path = tmp_path / "story.yaml"
+    script_path.write_text(
+        "video:\n  width: 64\n  height: 48\n  fps: 5\n  voice: narrator_base\n"
+        "scenes:\n"
+        "  - id: s1\n    image: bg.png\n    voiceover: 速度だけ\n"
+        "    voice_override:\n      speed: 1.2\n"
+        "  - id: s2\n    image: bg.png\n    voiceover: 声だけ\n"
+        "    voice_override:\n      voice: narrator_other\n",
+        encoding="utf-8",
+    )
+    pipeline = VideoPipeline(
+        script_path, config=AppConfig(video_encoder="cpu"), override_voice_cache=tmp_path / "cache"
+    )
+    pipeline.render(output_path=tmp_path / "out.mp4")
+
+    assert ("速度だけ", "narrator_base", 1.2) in calls
+    assert ("声だけ", "narrator_other", None) in calls
