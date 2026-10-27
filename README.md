@@ -45,6 +45,7 @@ Windows 11 で動作確認しています（Python 3.10.5 / MoviePy 2.1.2 / VOIC
 | VOICEVOX（エンジン） | 必須（※） | ナレーション音声の合成 |
 | 日本語フォント（.ttf / .ttc / .otf） | 必須 | 字幕・テロップの描画 |
 | NVIDIA GPU とドライバ | 任意 | GPU エンコード（NVENC）による高速化 |
+| Git | 任意 | GitHub からのソース取得・更新（ZIP ダウンロードなら不要） |
 
 ※ 汎用の Voicebox 互換 API サーバーを使うこともできます（[音声合成サーバー](#音声合成サーバーの設定)参照）。
 
@@ -60,10 +61,27 @@ python --version   # Python 3.10.x 以上であることを確認
 
 ### 2. VideoMaker のインストール
 
-仮想環境を作ってからインストールすることを推奨します。
+#### ソースの取得（GitHub から）
+
+ソースコードは GitHub の [Crytus/videomaker](https://github.com/Crytus/videomaker) で公開しています。
+
+**Git を使う場合**（[Git for Windows](https://gitforwindows.org/) などをインストールしておく）:
 
 ```powershell
-cd E:\work\videomaker
+cd E:\work                       # 置きたい場所に移動
+git clone https://github.com/Crytus/videomaker.git
+cd videomaker
+```
+
+**Git を使わない場合**: リポジトリのページで「Code」→「Download ZIP」を選んでダウンロードし、好きな場所に展開して、展開したフォルダ（`pyproject.toml` があるフォルダ）に移動します。
+
+`config.yaml` とフォント（`assets/fonts/`）はリポジトリに含まれていません。後述の手順 4・5 で各自用意してください。
+
+#### インストール
+
+仮想環境を作ってからインストールすることを推奨します。取得したフォルダ（`pyproject.toml` があるフォルダ）で次を実行します。
+
+```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1      # PowerShell の場合（cmd.exe なら .venv\Scripts\activate.bat）
 pip install -e .
@@ -83,6 +101,17 @@ pytest
 ```
 
 インストールすると `videomaker` コマンドが使えるようになります（`python -m videomaker.cli` でも同じです）。
+
+#### 最新版への更新
+
+Git で取得した場合は、取得したフォルダで次を実行します（`-e` でインストールしているので、通常は再インストール不要です。依存パッケージが変わったときだけ `pip install -e .` を再実行してください）。
+
+```powershell
+git pull
+pip install -e .                 # 依存パッケージが変わったときのみ
+```
+
+ZIP で取得した場合は、新しい ZIP をダウンロードして展開し直し、`config.yaml`・`assets/fonts/` の中身・自分で作ったシナリオなどを新しいフォルダにコピーしてから、仮想環境を作り直してインストールしてください。
 
 ### 3. VOICEVOX の準備
 
