@@ -12,11 +12,9 @@ from dataclasses import dataclass
 from typing import Sequence
 
 import numpy as np
-from rich.console import Console
 
 from .models import SceneSpec, VideoSpec
-
-console = Console()
+from .runlog import console
 
 # これより短くしか取れないトランジションはカットにする（秒）
 MIN_TRANSITION = 0.05
@@ -73,11 +71,11 @@ def plan_transitions(
         name = TRANSITION_NAMES.get(kind, kind)
         if duration > allowed:
             if allowed < MIN_TRANSITION:
-                console.log(f"[yellow]シーン {scene.id} への{name}をカットに変更しました（{reason}）[/]")
+                console.warn(f"シーン {scene.id} への{name}をカットに変更しました（{reason}）")
                 plans.append(Transition())
                 continue
-            console.log(
-                f"[yellow]シーン {scene.id} への{name}を {duration:.2f}秒 → {allowed:.2f}秒に短縮しました（{reason}）[/]"
+            console.warn(
+                f"シーン {scene.id} への{name}を {duration:.2f}秒 → {allowed:.2f}秒に短縮しました（{reason}）"
             )
             duration = allowed
         plans.append(Transition(kind, duration))

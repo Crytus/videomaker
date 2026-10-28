@@ -8,7 +8,6 @@ from typing import Callable, Optional, TypeVar
 
 import click
 import typer
-from rich.console import Console
 from rich.markup import escape
 
 from .config import AppConfig, load_config
@@ -16,16 +15,16 @@ from .errors import VideoMakerError
 from .models import Options
 from .pipeline import VideoPipeline
 from .renderer import RenderSettings
+from .runlog import console, end_session, error_console, log_exception, start_session
 from .script_parser import parse_script
 from .voicebox import clear_voice_cache
-
-console = Console()
-error_console = Console(stderr=True)
 
 app = typer.Typer(help="テキストスクリプトから動画を生成するツール")
 
 # --debug指定時はエラーのトレースバックを表示する
 _debug = False
+# 実行ログの出力先ディレクトリ
+_log_dir = Path("logs")
 
 F = TypeVar("F", bound=Callable[..., None])
 
@@ -33,22 +32,57 @@ F = TypeVar("F", bound=Callable[..., None])
 @app.callback()
 def _main_options(
     debug: bool = typer.Option(False, "--debug", help="エラー発生時に詳細なトレースバックを表示する"),
+    log_dir: Path = typer.Option(
+        Path("logs"), "--log-dir", envvar="VIDEOMAKER_LOG_DIR", help="実行ログの出力先ディレクトリ"
+    ),
 ) -> None:
-    global _debug
+    global _debug, _log_dir
     _debug = debug
+    _log_dir = log_dir
 
 
-def handle_errors(func: F) -> F:
-    """コマンド実行中の例外を捕捉し、利用者向けのエラーメッセージを表示して終了する。"""
+def _log_name(func: Callable[..., None], kwargs: dict) -> str:
+    """ログファイル名に使う「コマンド名_スクリプト名」を作る。"""
+    script = kwargs.get("script")
+    return f"{func.__name__}_{Path(script).stem}" if script else func.__name__
+
+
+def _report_log(*, failed: bool) -> None:
+    """ログファイルを閉じ、確認が必要な内容があれば案内を表示する。"""
+    session = end_session()
+    if session is None:
+        return
+    if session.total_warnings:
+        console.print(
+            f"[yellow]警告が {session.total_warnings} 件ありました。"
+            f"内容をログファイルで確認してください: {escape(str(session.path))}[/]"
+        )
+    elif failed:
+        error_console.print(f"[yellow]詳細はログファイルを確認してください: {escape(str(session.path))}[/]")
+
+
+def handle_errors(func: Optional[F] = None, *, log: bool = True):
+    """コマンド実行中の例外を捕捉し、利用者向けのエラーメッセージを表示して終了する。
+
+    log=True のときは実行ログをファイルに書き出し、終了時に警告があれば確認を促す。
+    """
+    if func is None:
+        return functools.partial(handle_errors, log=log)
 
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
+        if log:
+            start_session(_log_dir, _log_name(func, kwargs))
+        failed = True
         try:
-            return func(*args, **kwargs)
+            result = func(*args, **kwargs)
+            failed = False
+            return result
         except (typer.Exit, typer.Abort, click.exceptions.ClickException):
             # typer/click自身の終了・確認キャンセル・引数エラーはそのまま任せる
             raise
         except VideoMakerError as exc:
+            log_exception()
             if _debug:
                 error_console.print_exception()
             error_console.print(f"[bold red]エラー:[/] {escape(exc.message)}")
@@ -59,6 +93,7 @@ def handle_errors(func: F) -> F:
             error_console.print("[yellow]処理を中断しました[/]")
             raise typer.Exit(code=130) from exc
         except Exception as exc:
+            log_exception()
             if _debug:
                 error_console.print_exception()
             error_console.print(
@@ -68,6 +103,9 @@ def handle_errors(func: F) -> F:
                 error_console.print("[yellow]ヒント:[/] --debug を付けて実行すると詳細が表示されます"
                                     "（例: videomaker --debug render story.yaml）")
             raise typer.Exit(code=1) from exc
+        finally:
+            if log:
+                _report_log(failed=failed)
 
     return wrapper  # type: ignore[return-value]
 
@@ -198,7 +236,7 @@ def preview(
 
 
 @app.command(help="音声キャッシュ(*.wav)をすべて削除します")
-@handle_errors
+@handle_errors(log=False)
 def clear(
     script: Optional[Path] = typer.Argument(
         None, exists=True, readable=True, help="指定するとシナリオのvoice_cache_dirを対象にする"

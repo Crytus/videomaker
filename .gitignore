@@ -19,3 +19,6 @@ config.yaml
 # 再配布できないフォント（MSゴシックなど）。各自 assets/fonts/ に配置する
 assets/fonts/*
 !assets/fonts/.gitkeep
+
+# 実行ログ
+logs/

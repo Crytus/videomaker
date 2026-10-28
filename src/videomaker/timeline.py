@@ -12,12 +12,10 @@ from __future__ import annotations
 
 from typing import Sequence
 
-from rich.console import Console
 
 from .errors import ScriptError
 from .models import SceneSpec
-
-console = Console()
+from .runlog import console
 
 
 def resolve_durations(
@@ -57,21 +55,21 @@ def resolve_durations(
                     hint="前のシーンの duration やナレーションが長すぎないか、start の値を確認してください。",
                 )
             if scene.duration is not None and abs(scene.duration - duration) > 0.01:
-                console.log(
-                    f"[yellow]シーン {scene.id} の duration ({scene.duration:g}秒) は、"
-                    f"次のシーン {next_scene.id} の start に合わせて {duration:.2f}秒にしました[/]"
+                console.warn(
+                    f"シーン {scene.id} の duration ({scene.duration:g}秒) は、"
+                    f"次のシーン {next_scene.id} の start に合わせて {duration:.2f}秒にしました"
                 )
             if needed > duration + 0.01:
-                console.log(
-                    f"[yellow]シーン {scene.id} のナレーション（{needed:.2f}秒）が、"
-                    f"次のシーン {next_scene.id} の start までの {duration:.2f}秒に収まりません（途中で切れます）[/]"
+                console.warn(
+                    f"シーン {scene.id} のナレーション（{needed:.2f}秒）が、"
+                    f"次のシーン {next_scene.id} の start までの {duration:.2f}秒に収まりません（途中で切れます）"
                 )
         elif scene.duration is not None:
             duration = scene.duration
             if needed > duration + 0.01:
-                console.log(
-                    f"[yellow]シーン {scene.id} のduration ({duration:.2f}秒) がナレーション"
-                    f"（前後の無音を含めて {needed:.2f}秒）より短いため、{needed:.2f}秒に延長しました[/]"
+                console.warn(
+                    f"シーン {scene.id} のduration ({duration:.2f}秒) がナレーション"
+                    f"（前後の無音を含めて {needed:.2f}秒）より短いため、{needed:.2f}秒に延長しました"
                 )
                 duration = needed
         elif needed > 0:

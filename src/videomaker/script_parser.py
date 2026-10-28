@@ -6,12 +6,10 @@ from pathlib import Path
 from typing import Any
 
 from pydantic import ValidationError
-from rich.console import Console
 
 from .errors import ScriptError, format_validation_error, load_yaml_mapping
 from .models import VideoScript
-
-console = Console()
+from .runlog import console
 
 
 PATH_KEYS = {

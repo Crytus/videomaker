@@ -6,7 +6,6 @@ import hashlib
 from pathlib import Path
 from typing import Iterable
 
-from rich.console import Console
 from rich.table import Table
 
 from .config import AppConfig
@@ -18,8 +17,7 @@ from .narration import split_narration, strip_pauses
 from .timeline import resolve_durations
 from .transitions import TRANSITION_NAMES, Transition
 from .voicebox import VoiceboxClient
-
-console = Console()
+from .runlog import console
 
 
 class VideoPipeline:
@@ -91,7 +89,7 @@ class VideoPipeline:
             return
         client = self._voice_client()
         if not client.healthcheck():
-            console.log("[yellow]Voiceboxヘルスチェックに失敗しました[/]")
+            console.warn("Voiceboxヘルスチェックに失敗しました")
         else:
             console.log("[green]Voiceboxと疎通できました[/]")
 
@@ -207,7 +205,7 @@ class VideoPipeline:
                             audio_clips.append(AudioClip(lambda t: 0, duration=seconds, fps=fps or 44100))
                             console.log(f"[cyan]  {label}に {seconds}秒の無音を追加[/]")
                         else:
-                            console.log(f"[yellow]AudioClipが利用できないため、{label}の無音を追加できません[/]")
+                            console.warn(f"AudioClipが利用できないため、{label}の無音を追加できません")
 
                     for i, (line, items) in enumerate(zip(lines, line_items)):
                         for item in items:

@@ -8,11 +8,9 @@ from pathlib import Path
 from typing import Any
 
 import requests
-from rich.console import Console
 
 from .errors import VideoMakerError
-
-console = Console()
+from .runlog import console
 
 
 class VoiceboxError(VideoMakerError):
@@ -244,9 +242,9 @@ class VoiceboxClient:
         try:
             response = requests.get(url, timeout=5)
             if response.status_code == 404 and self.health_url is None:
-                console.log(
-                    "[yellow]Voicebox health endpoint not found; set voicebox_health_url in "
-                    "config.yaml if your server exposes a custom path.[/]"
+                console.warn(
+                    "Voicebox health endpoint not found; set voicebox_health_url in "
+                    "config.yaml if your server exposes a custom path."
                 )
                 return True
             return response.ok

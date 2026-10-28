@@ -43,7 +43,6 @@ except ImportError:
         concatenate_videoclips,
     )
     MOVIEPY_VERSION = 1
-from rich.console import Console
 
 from .config import AppConfig
 from .errors import AssetError, RenderError, VideoMakerError
@@ -51,8 +50,7 @@ from .models import SceneSpec, SubtitleStyle, VideoScript, parse_color
 from .narration import split_narration
 from .textsplit import split_line
 from .transitions import SpeechSpan, Transition, compose_timeline, fit_to_starts, plan_transitions
-
-console = Console()
+from .runlog import console, log_exception
 
 
 @dataclass
@@ -108,7 +106,7 @@ def _resolve_codec(encoder: str) -> str:
         return "libx264"
     if name in ("nvenc", "gpu"):
         if not _nvenc_available():
-            console.log("[yellow]NVENCが利用できないため、libx264(CPU)でエンコードします[/]")
+            console.warn("NVENCが利用できないため、libx264(CPU)でエンコードします")
             return "libx264"
         return "h264_nvenc"
     if name == "auto":
@@ -354,7 +352,7 @@ class Renderer:
                 pass
             elif clip.duration < scene.duration:
                 # 短い場合は指定された長さでカット（最後のフレームを保持）
-                console.log(f"[yellow]ビデオが短いため、{scene.duration}秒にトリミングします（実際: {clip.duration}秒）[/]")
+                console.warn(f"ビデオが短いため、{scene.duration}秒にトリミングします（実際: {clip.duration}秒）")
                 clip = clip.with_duration(scene.duration)
             else:
                 # 長い場合はカット
@@ -403,7 +401,7 @@ class Renderer:
 
             clip = clip.with_audio(voice)
         elif not self.no_voice and scene.voiceover.strip():
-            console.log(f"[yellow]音声が見つかりません: {scene.id}[/]")
+            console.warn(f"音声が見つかりません: {scene.id}")
 
         # テキストオーバーレイを追加
         overlays = [clip]
@@ -444,7 +442,7 @@ class Renderer:
                     overlays.append(teletext_clip)
                 console.log(f"[green]テロップをオーバーレイに追加しました: {scene.id}[/]")
             else:
-                console.log(f"[yellow]テロップクリップの作成に失敗しました: {scene.id}[/]")
+                console.warn(f"テロップクリップの作成に失敗しました: {scene.id}")
 
         # 合成は元解像度で行い、縮小は最後にかける（字幕位置などのレイアウトを崩さないため）
         output_size = self._output_size()
@@ -624,9 +622,9 @@ class Renderer:
 
                 return None
         except Exception as e:
-            console.log(f"[yellow]字幕の作成に失敗しました ({scene.id}): {e}[/]")
-            import traceback
-            console.log(f"[yellow]{traceback.format_exc()}[/]")
+            console.warn(f"字幕の作成に失敗しました ({scene.id}): {e}")
+            # 詳細なトレースバックはログファイルにだけ残す
+            log_exception()
             return None
 
     def _create_teletext_clip(self, scene: SceneSpec):
@@ -820,7 +818,7 @@ class Renderer:
 
         # どちらも見つからない場合はNone
         if font_path:
-            console.log(f"[yellow]フォントが見つかりません: {font_path}, システムフォントを使用します[/]")
+            console.warn(f"フォントが見つかりません: {font_path}, システムフォントを使用します")
         return None
 
     def _apply_bgm(self, clip):
@@ -829,7 +827,7 @@ class Renderer:
         if not bgm_path:
             return clip
         if not Path(bgm_path).exists():
-            console.log(f"[yellow]BGMファイルが見つかりません: {bgm_path}[/]")
+            console.warn(f"BGMファイルが見つかりません: {bgm_path}")
             return clip
         bgm_clip = self._open_media(lambda: AudioFileClip(str(bgm_path)), "video", "BGM", bgm_path)
         # BGMファイルの再生開始位置（--scene で途中から書き出すときはその分だけ進める）
@@ -842,10 +840,10 @@ class Renderer:
             )
             bgm_clip = bgm_clip.with_effects([AudioLoop(duration=end)])
         if offset >= bgm_clip.duration - 0.01:
-            console.log(f"[yellow]BGMの再生開始位置 ({offset:.2f}秒) がBGMの長さを超えているため、BGMを付けません[/]")
+            console.warn(f"BGMの再生開始位置 ({offset:.2f}秒) がBGMの長さを超えているため、BGMを付けません")
             return clip
         if bgm_clip.duration < end:
-            console.log(f"[yellow]BGMが動画より短いため、{bgm_clip.duration - offset:.2f}秒以降はBGMなしになります[/]")
+            console.warn(f"BGMが動画より短いため、{bgm_clip.duration - offset:.2f}秒以降はBGMなしになります")
         bgm_clip = bgm_clip.subclipped(offset, min(end, bgm_clip.duration))
 
         if video.bgm_volume != 1.0:
