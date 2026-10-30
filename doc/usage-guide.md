@@ -169,6 +169,12 @@ scenes:
     voiceover: >
       ここに読み上げるテキストを記述します。
     subtitle: ここに字幕テキストを記述
+    # 配置・スタイルをこのシーンだけ変える場合は辞書で書く（書いた項目だけが video.subtitle を上書き）
+    # subtitle:
+    #   text: ここに字幕テキストを記述
+    #   position: top
+    #   style:
+    #     fill: "#FFE066"
     teletext:                      # テロップ（省略可）
       text: タイトルテキスト
       position: top_left           # top_left, top_right, bottom_left, bottom_right, center, none（none はテロップを出力しない。省略時は video.teletext.position）

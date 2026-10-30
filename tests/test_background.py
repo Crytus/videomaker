@@ -162,6 +162,57 @@ def test_subtitle_position_none_outputs_nothing() -> None:
     assert renderer._create_subtitle_clip(script.scenes[0], text="字幕です") is None
 
 
+
+def _subtitle_script(video_subtitle: dict, scenes: list[dict]) -> VideoScript:
+    return VideoScript.model_validate({
+        "video": {"width": 640, "height": 360, "subtitle": video_subtitle},
+        "scenes": [{"id": f"s{i}", "image": "a.png", "duration": 2.0, "voiceover": "ナレーション", **scene}
+                   for i, scene in enumerate(scenes)],
+    })
+
+
+def test_subtitle_string_uses_video_setting() -> None:
+    # 従来どおり文字列で書いた場合は video.subtitle をそのまま使う
+    script = _subtitle_script({"style": {"fill": "#FFE066"}}, [{"subtitle": "字幕"}, {}])
+    assert [s.subtitle for s in script.scenes] == ["字幕", None]
+    assert all(s.subtitle_config is None for s in script.scenes)
+
+
+def test_subtitle_style_defaults_to_video_setting() -> None:
+    # シーンで書いた項目だけが video.subtitle.style を上書きする
+    script = _subtitle_script(
+        {"position": "bottom", "style": {"fill": "#FFE066", "stroke": "#222222", "font_size": 40, "padding": 32}},
+        [{"subtitle": {"text": "字幕", "style": {"fill": "#FF0000", "stroke": None}}}],
+    )
+    scene = script.scenes[0]
+    assert scene.subtitle == "字幕"
+    config = scene.subtitle_config
+    assert config.position == "bottom"
+    style = config.style
+    assert (style.fill, style.stroke, style.font_size, style.padding) == ("#FF0000", None, 40, 32)
+    # どちらにも書いていない項目は既定値
+    assert style.background_padding == 16
+    # video.subtitle 自体は変わらない
+    assert script.video.subtitle.style.fill == "#FFE066"
+
+
+def test_subtitle_mapping_without_text_uses_voiceover() -> None:
+    script = _subtitle_script({}, [{"subtitle": {"position": "top"}}, {"subtitle": {"text": ""}}])
+    assert script.scenes[0].subtitle is None
+    assert script.scenes[0].subtitle_config.position == "top"
+    assert script.scenes[1].subtitle == ""
+
+
+def test_subtitle_position_per_scene() -> None:
+    # video.subtitle.position: none でも、シーンで指定すれば表示する（逆も可）
+    script = _subtitle_script(
+        {"position": "none"}, [{}, {"subtitle": {"position": "bottom"}}, {"subtitle": {"text": "字幕"}}]
+    )
+    renderer = Renderer(script, config=AppConfig())
+    assert renderer._create_subtitle_clip(script.scenes[0], text="字幕") is None
+    assert renderer._create_subtitle_clip(script.scenes[1], text="字幕") is not None
+    assert renderer._create_subtitle_clip(script.scenes[2], text="字幕") is None
+
 def _teletext_lines(script) -> int:
     """テロップの表示行数（単一行ならクリップ1つ、複数行なら合成クリップの子の数）。"""
     result = Renderer(script, config=AppConfig())._create_teletext_clip(script.scenes[0])

@@ -532,13 +532,41 @@ scenes:
 | `voiceover` | | `""` | ナレーション本文。複数行で書ける。省略するとナレーションなしのシーン。`{無音 0.5}` で途中に無音を入れられる（[ナレーションに無音を入れる](#ナレーションに無音を入れる)参照） |
 | `start` | | `null` | シーンの開始時刻（動画の先頭からの秒数、または `"分:秒"`・`"時:分:秒"`）。指定すると、直前のシーンの長さがこの時刻に合わせて決まる（[シーンの長さ](#シーンの長さ)参照） |
 | `duration` | | `null` | シーンの長さ（秒）。省略時はナレーション音声の長さ＋前後の無音。ナレーションより短い値を指定した場合は、ナレーションが収まる長さに自動で延長 |
-| `subtitle` | | `null` | 字幕の文章。省略時は `voiceover` を字幕にする。`""`（空文字）で字幕なし |
+| `subtitle` | | `null` | 字幕の文章。省略時は `voiceover` を字幕にする。`""`（空文字）で字幕なし。配置やスタイルをシーンごとに変える場合は辞書で書く（下記） |
 | `teletext` | | `null` | テロップ（下記） |
 | `voice_override` | | `null` | このシーンだけ声・速度などを変える（下記） |
 | `transition` | | `null` | 前のシーンからこのシーンへ切り替わるときのトランジション（`cut` / `fade` / `crossfade`）。省略時は `video.transition`。最初のシーンでは無視 |
 | `transition_duration` | | `null` | このシーンへのトランジションの長さ（秒）。省略時は `video.transition_duration` |
 | `interval` | | `null` | このシーンのナレーションが終わってから次のシーンに切り替わるまでの間（秒）。省略時は `video.scene_interval` |
 | `kenburns` | | `false` | 未実装 |
+
+#### `subtitle`（字幕の個別設定）
+
+文章だけを書く場合は従来どおり文字列で指定します。このシーンだけ字幕の配置やスタイルを変えたい場合は、辞書で書きます。
+
+| キー | 既定値 | 説明 |
+|---|---|---|
+| `text` | `null` | 字幕の文章。省略時は `voiceover` を字幕にする。`""`（空文字）で字幕なし |
+| `position` | `null` | `bottom` / `top` / `none`（字幕を出力しない）。省略時は `video.subtitle.position` |
+| `style` | | `style` 参照。書いた項目だけが `video.subtitle.style` を上書きし、書いていない項目は `video.subtitle.style` の値になる |
+
+```yaml
+video:
+  subtitle:
+    position: bottom
+    style:
+      fill: "#FFFFFF"
+      background: "#00000080"
+scenes:
+  - id: intro
+    voiceover: はるのもりで　であったふたり
+    subtitle:
+      position: top          # このシーンだけ画面上に（text 省略なので voiceover を表示）
+      style:
+        fill: "#FFE066"      # 文字色だけ変える（背景は video.subtitle.style のまま）
+```
+
+- フォントは全シーン共通（`video.subtitle.font`）です。
 
 #### `teletext`（テロップ）
 

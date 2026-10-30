@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator, model_validator, validator
+from pydantic import BaseModel, Field, PrivateAttr, field_validator, model_validator, validator
 
 from .narration import check_pause_tags
 
@@ -120,6 +120,17 @@ class SubtitleConfig(BaseModel):
         return value
 
 
+class SceneSubtitleOptions(BaseModel):
+    """シーンごとの字幕の個別設定（シーンの subtitle を辞書で書いた場合の text 以外の項目）。"""
+
+    position: Optional[Literal["top", "bottom", "none"]] = Field(
+        None, description="字幕の配置。未指定なら video.subtitle.position"
+    )
+    style: SubtitleStyle = Field(
+        default_factory=SubtitleStyle, description="書いた項目だけが video.subtitle.style を上書きする"
+    )
+
+
 # テロップの配置（none はテロップを出力しない）
 TeletextPosition = Literal["top_left", "top_right", "bottom_left", "bottom_right", "center", "none"]
 
@@ -177,7 +188,12 @@ class SceneSpec(BaseModel):
     )
     duration: Optional[float] = Field(None, gt=0, description="シーン長 (秒)。未指定の場合はナレーション音声の長さを使用")
     voiceover: str = Field("", description="ナレーション。省略または空ならナレーションなしのシーン")
-    subtitle: Optional[str] = None
+    subtitle: Optional[str] = Field(
+        None, description="字幕の文章。省略時は voiceover。辞書で書くと text / position / style を指定できる"
+    )
+    subtitle_options: Optional[SceneSubtitleOptions] = Field(
+        None, description="字幕の個別設定（subtitle を辞書で書いた場合に自動で設定される）"
+    )
     teletext: Optional[TeletextConfig] = None
     transition: Optional[TransitionType] = Field(
         None, description="前のシーンからこのシーンへ切り替わるときのトランジション。未指定ならvideo.transition"
@@ -190,6 +206,25 @@ class SceneSpec(BaseModel):
     )
     kenburns: bool = False
     voice_override: Optional[VoiceOverride] = None
+
+    # video.subtitle とシーンの個別設定を合成した字幕設定（VideoScript の検証時に設定する）
+    _subtitle_config: Optional[SubtitleConfig] = PrivateAttr(None)
+
+    @property
+    def subtitle_config(self) -> Optional[SubtitleConfig]:
+        """このシーンで使う字幕設定。未設定なら None（video.subtitle を使う）。"""
+        return self._subtitle_config
+
+    @model_validator(mode="before")
+    @classmethod
+    def _split_subtitle_mapping(cls, data):
+        # subtitle を辞書で書いた場合は、文章（text）と個別設定（position / style）に分ける
+        if isinstance(data, dict) and isinstance(data.get("subtitle"), dict):
+            data = dict(data)
+            options = dict(data["subtitle"])
+            data["subtitle"] = options.pop("text", None)
+            data["subtitle_options"] = options
+        return data
 
     @field_validator("start", mode="before")
     @classmethod
@@ -369,6 +404,18 @@ class VideoScript(BaseModel):
                     f"前のシーン {previous.id} の start ({previous.start:g}秒) 以前になっています"
                 )
             previous = scene
+        # 字幕の個別設定を video.subtitle と合成する（シーンで書いた項目 > video.subtitle > 既定値）
+        subtitle = self.video.subtitle
+        subtitle_style = subtitle.style.model_dump(exclude_unset=True)
+        for scene in self.scenes:
+            options = scene.subtitle_options
+            if not options:
+                scene._subtitle_config = None
+                continue
+            scene._subtitle_config = subtitle.model_copy(update={
+                "position": options.position or subtitle.position,
+                "style": SubtitleStyle(**{**subtitle_style, **options.style.model_dump(exclude_unset=True)}),
+            })
         # テロップの省略した項目には video.teletext の設定を適用する
         defaults = self.video.teletext
         default_style = defaults.style.model_dump(exclude_unset=True)

@@ -509,7 +509,8 @@ class Renderer:
             window_length = window_end - window_start
             if window_length <= 0:
                 return None
-            subtitle_config = self.script.video.subtitle
+            # シーンの個別設定があればそれを使う（video.subtitle と合成済み）
+            subtitle_config = scene.subtitle_config or self.script.video.subtitle
             # position: none の場合は字幕を出力しない
             if subtitle_config.position == "none":
                 return None
