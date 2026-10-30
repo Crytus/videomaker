@@ -656,12 +656,17 @@ class Renderer:
                 else (self.config.teletext_stroke_width if self.config else 3)
             )
 
-            # テキストを行ごとに分割（1行の最大文字数を超える行は折り返す。シーンの指定 > 動画全体の指定）
+            # テキストを行ごとに分割（1行の最大文字数を超える行は折り返す。
+            # シーンの指定 > video.teletext.max_line_chars > video.teletext_max_line_chars）
             lines = [line.strip() for line in teletext.text.split('\n') if line.strip()]
-            max_chars = (
-                teletext.max_line_chars
-                if teletext.max_line_chars is not None
-                else self.script.video.teletext_max_line_chars
+            video = self.script.video
+            max_chars = next(
+                (
+                    value
+                    for value in (teletext.max_line_chars, video.teletext.max_line_chars, video.teletext_max_line_chars)
+                    if value is not None
+                ),
+                None,
             )
             if max_chars:
                 lines = [part for line in lines for part in split_line(line, max_chars)]

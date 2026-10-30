@@ -101,6 +101,58 @@ def test_teletext_position_none_outputs_nothing() -> None:
     assert Renderer(script, config=AppConfig())._create_teletext_clip(script.scenes[0]) is None
 
 
+
+def _teletext_script(video_teletext: dict, scenes: list[dict]) -> VideoScript:
+    return VideoScript.model_validate({
+        "video": {"width": 640, "height": 360, "teletext": video_teletext},
+        "scenes": [{"id": f"s{i}", "image": "a.png", "duration": 2.0, "teletext": t}
+                   for i, t in enumerate(scenes)],
+    })
+
+
+def test_teletext_position_defaults_to_video_setting() -> None:
+    # video.teletext.position: none なら、position を省略したシーンは出力しない
+    script = _teletext_script({"position": "none"}, [{"text": "省略"}, {"text": "指定", "position": "center"}])
+    assert [s.teletext.position for s in script.scenes] == ["none", "center"]
+    renderer = Renderer(script, config=AppConfig())
+    assert renderer._create_teletext_clip(script.scenes[0]) is None
+    assert renderer._create_teletext_clip(script.scenes[1]) is not None
+
+
+def test_teletext_position_default_is_top_left() -> None:
+    script = _teletext_script({}, [{"text": "省略"}])
+    assert script.scenes[0].teletext.position == "top_left"
+    script = _teletext_script({"position": "bottom_right"}, [{"text": "省略"}])
+    assert script.scenes[0].teletext.position == "bottom_right"
+
+
+def test_teletext_style_defaults_to_video_setting() -> None:
+    # シーンで書いた項目だけが video.teletext.style を上書きする
+    script = _teletext_script(
+        {"style": {"fill": "#FFE066", "stroke": "#222222", "font_size": 40, "background": "#00000080"}},
+        [{"text": "省略"}, {"text": "一部指定", "style": {"fill": "#FF0000", "stroke": None}}],
+    )
+    first, second = (s.teletext.style for s in script.scenes)
+    assert (first.fill, first.stroke, first.font_size, first.background) == ("#FFE066", "#222222", 40, "#00000080")
+    assert (second.fill, second.stroke, second.font_size, second.background) == ("#FF0000", None, 40, "#00000080")
+    # どちらにも書いていない項目は既定値
+    assert first.background_padding == 16
+
+
+def test_teletext_style_default_without_video_setting() -> None:
+    script = _teletext_script({}, [{"text": "省略"}])
+    assert script.scenes[0].teletext.style.fill == "#FFFFFF"
+
+
+def test_teletext_max_line_chars_from_video_teletext() -> None:
+    script = _teletext_script({"max_line_chars": 8}, [{"text": "飯盛山は八ヶ岳を望む山です"}])
+    script.video.teletext_max_line_chars = 0
+    # video.teletext.max_line_chars は video.teletext_max_line_chars より優先
+    assert _teletext_lines(script) == 2
+    # シーンの指定が最優先
+    script.scenes[0].teletext.max_line_chars = 0
+    assert _teletext_lines(script) == 1
+
 def test_subtitle_position_none_outputs_nothing() -> None:
     script = VideoScript.model_validate({
         "video": {"width": 640, "height": 360, "subtitle": {"position": "none"}},

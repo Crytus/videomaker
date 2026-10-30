@@ -155,6 +155,11 @@ video:
       font_size: 48                # 文字サイズ（省略可）
       stroke_width: 2              # 縁取り幅（省略可）
       padding: 32                  # パディング（ピクセル）
+  teletext:
+    position: top_left             # シーンで position を省略したときの配置（none にすると省略したシーンは出力しない）
+    style:                         # シーンで省略したスタイル項目の既定値（省略可）
+      fill: "#FFE066"
+      stroke: "#222222"
 
 scenes:
   - id: scene1
@@ -166,7 +171,7 @@ scenes:
     subtitle: ここに字幕テキストを記述
     teletext:                      # テロップ（省略可）
       text: タイトルテキスト
-      position: top_left           # top_left, top_right, bottom_left, bottom_right, center, none（none はテロップを出力しない）
+      position: top_left           # top_left, top_right, bottom_left, bottom_right, center, none（none はテロップを出力しない。省略時は video.teletext.position）
       style:
         fill: "#FFE066"
         stroke: "#222222"

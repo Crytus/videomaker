@@ -120,21 +120,34 @@ class SubtitleConfig(BaseModel):
         return value
 
 
+# テロップの配置（none はテロップを出力しない）
+TeletextPosition = Literal["top_left", "top_right", "bottom_left", "bottom_right", "center", "none"]
+
+
+class TeletextDefaults(BaseModel):
+    """全シーン共通のテロップ設定（video.teletext）。"""
+
+    position: TeletextPosition = Field(
+        "top_left", description="シーンで position を省略したときの配置（none の場合はテロップを出力しない）"
+    )
+    style: SubtitleStyle = Field(
+        default_factory=SubtitleStyle, description="テロップのスタイルの既定値（シーンの style で書いた項目が優先）"
+    )
+    max_line_chars: Optional[int] = Field(
+        None, ge=0, description="テロップの1行の最大文字数の既定値（video.teletext_max_line_chars より優先。0で分割しない）"
+    )
+
+
 class TeletextConfig(BaseModel):
     """シーンごとのテロップ設定。"""
 
     text: str
-    position: Literal[
-        "top_left",
-        "top_right",
-        "bottom_left",
-        "bottom_right",
-        "center",
-        "none",  # テロップを出力しない
-    ] = "top_left"
+    position: Optional[TeletextPosition] = Field(
+        None, description="配置。未指定なら video.teletext.position"
+    )
     style: SubtitleStyle = Field(default_factory=SubtitleStyle)
     max_line_chars: Optional[int] = Field(
-        None, ge=0, description="1行の最大文字数（video.teletext_max_line_chars より優先。0で分割しない）"
+        None, ge=0, description="1行の最大文字数（video.teletext より優先。0で分割しない）"
     )
 
 
@@ -260,6 +273,7 @@ class VideoSpec(BaseModel):
         None, description="Voiceboxのプリセット名"
     )
     subtitle: SubtitleConfig = Field(default_factory=SubtitleConfig)
+    teletext: TeletextDefaults = Field(default_factory=TeletextDefaults)
     max_line_chars: Optional[int] = Field(
         None,
         ge=0,
@@ -355,4 +369,17 @@ class VideoScript(BaseModel):
                     f"前のシーン {previous.id} の start ({previous.start:g}秒) 以前になっています"
                 )
             previous = scene
+        # テロップの省略した項目には video.teletext の設定を適用する
+        defaults = self.video.teletext
+        default_style = defaults.style.model_dump(exclude_unset=True)
+        for scene in self.scenes:
+            teletext = scene.teletext
+            if not teletext:
+                continue
+            if teletext.position is None:
+                teletext.position = defaults.position
+            # style は項目ごとに合成する（シーンで書いた項目 > video.teletext.style > 既定値）
+            teletext.style = SubtitleStyle(
+                **{**default_style, **teletext.style.model_dump(exclude_unset=True)}
+            )
         return self

@@ -446,6 +446,7 @@ options:
 | `transition_duration` | `0.5` | トランジションの長さ（秒）の既定値 |
 | `scene_interval` | `0` | シーン切り替えの間の既定値（秒）。ナレーションが終わってから次のシーンに切り替わるまでの時間（[シーン切り替えの間](#シーン切り替えの間)参照） |
 | `subtitle` | | 字幕の設定（下記） |
+| `teletext` | | テロップの共通設定（下記） |
 | `max_line_chars` | `null` | ナレーション・字幕の1行の最大文字数。指定すると config の `max_line_chars` より優先（`0` で分割しない）。縦動画など画面幅が狭いシナリオで小さめにする |
 | `teletext_max_line_chars` | `null` | テロップの1行の最大文字数。超える行は自動で折り返す（`null`・`0` なら折り返さない）。シーンの `teletext.max_line_chars` が優先 |
 
@@ -456,6 +457,33 @@ options:
 | `font` | `null` | 字幕とテロップのフォント。見つからなければ `assets/fonts/<ファイル名>`、次に config の `default_font` を使用 |
 | `position` | `bottom` | `bottom`（画面下）、`top`（画面上）、`none`（字幕を出力しない） |
 | `style` | | 字幕のスタイル（下記の `style` 参照） |
+
+#### `video.teletext`
+
+| キー | 既定値 | 説明 |
+|---|---|---|
+| `position` | `top_left` | シーンの `teletext.position` を省略したときの配置。値はシーンの `position` と同じ。`none` にすると、`position` を指定したシーンのテロップだけが表示される |
+| `style` | | テロップのスタイルの既定値（`style` 参照）。シーンの `teletext.style` に書いた項目だけがシーンごとに上書きされ、書いていない項目はここの値になる |
+| `max_line_chars` | `null` | テロップの1行の最大文字数の既定値。`video.teletext_max_line_chars` より優先、シーンの `teletext.max_line_chars` がさらに優先 |
+
+全シーンで同じ色・背景のテロップを使う場合は、ここにまとめて書けます。
+
+```yaml
+video:
+  teletext:
+    position: none          # position を書かないシーンはテロップを出さない
+    style:
+      fill: "#FFE066"
+      stroke: "#222222"
+      background: "#00000080"
+scenes:
+  - id: intro
+    teletext:
+      text: イントロ
+      position: center      # このシーンだけ表示
+      style:
+        fill: "#FF0000"     # 文字色だけ変える（縁取り・背景は video.teletext.style のまま）
+```
 
 #### `style`（字幕・テロップ共通）
 
@@ -519,9 +547,9 @@ scenes:
 | キー | 既定値 | 説明 |
 |---|---|---|
 | `text` | （必須） | テロップの文字。複数行で書くと縦に並べて表示 |
-| `position` | `top_left` | `top_left` / `top_right` / `bottom_left` / `bottom_right` / `center` / `none`（テロップを出力しない） |
-| `style` | | `style` 参照。`fill` の既定値は白なので、色を付けたい場合は指定する（例: `"#FFE066"`） |
-| `max_line_chars` | `null` | 1行の最大文字数。超える行は自動で折り返す。`null` なら `video.teletext_max_line_chars`、`0` なら折り返さない |
+| `position` | `null` | `top_left` / `top_right` / `bottom_left` / `bottom_right` / `center` / `none`（テロップを出力しない）。省略時は `video.teletext.position`（既定は `top_left`） |
+| `style` | | `style` 参照。書いた項目だけが `video.teletext.style` を上書きする。どちらにも書かない場合の `fill` は白なので、色を付けたい場合は指定する（例: `"#FFE066"`） |
+| `max_line_chars` | `null` | 1行の最大文字数。超える行は自動で折り返す。`null` なら `video.teletext.max_line_chars`、次に `video.teletext_max_line_chars`、`0` なら折り返さない |
 
 #### `voice_override`（シーンごとの声の上書き）
 
