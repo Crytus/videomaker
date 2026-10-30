@@ -148,7 +148,7 @@ video:
   output_file: dist/my_video.mp4   # 出力ファイル名（省略可）
   subtitle:
     font: assets/fonts/msgothic.ttc
-    position: bottom               # top または bottom
+    position: bottom               # top, bottom, none（none は字幕を出力しない）
     style:
       fill: "#FFFFFF"              # 文字色
       stroke: "#000000"            # 縁取り色
@@ -166,7 +166,7 @@ scenes:
     subtitle: ここに字幕テキストを記述
     teletext:                      # テロップ（省略可）
       text: タイトルテキスト
-      position: top_left           # top_left, top_right, bottom_left, bottom_right, center
+      position: top_left           # top_left, top_right, bottom_left, bottom_right, center, none（none はテロップを出力しない）
       style:
         fill: "#FFE066"
         stroke: "#222222"
@@ -390,7 +390,7 @@ subtitle_stroke_width: 2
 video:
   subtitle:
     font: assets/fonts/msgothic.ttc
-    position: bottom  # top または bottom
+    position: bottom  # top, bottom, none（none は字幕を出力しない）
     style:
       fill: "#FFFFFF"       # 文字色
       stroke: "#000000"     # 縁取り色
@@ -423,7 +423,7 @@ scenes:
   - id: scene1
     teletext:
       text: タイトル文字
-      position: top_left  # top_left, top_right, bottom_left, bottom_right, center
+      position: top_left  # top_left, top_right, bottom_left, bottom_right, center, none（none はテロップを出力しない）
       style:
         fill: "#FFE066"
         stroke: "#222222"

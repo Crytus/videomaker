@@ -95,8 +95,8 @@ class SubtitleConfig(BaseModel):
     font: Path | None = Field(
         None, description="字幕描画に利用するフォントパス"
     )
-    position: Literal["top", "bottom"] = Field(
-        "bottom", description="字幕の配置場所"
+    position: Literal["top", "bottom", "none"] = Field(
+        "bottom", description="字幕の配置場所（none の場合は字幕を出力しない）"
     )
     style: SubtitleStyle = Field(default_factory=SubtitleStyle)
 
@@ -130,6 +130,7 @@ class TeletextConfig(BaseModel):
         "bottom_left",
         "bottom_right",
         "center",
+        "none",  # テロップを出力しない
     ] = "top_left"
     style: SubtitleStyle = Field(default_factory=SubtitleStyle)
     max_line_chars: Optional[int] = Field(

@@ -96,6 +96,20 @@ def test_subtitle_background_fits_text() -> None:
     assert box.start == text.start and box.duration == text.duration
 
 
+def test_teletext_position_none_outputs_nothing() -> None:
+    script = _script({"text": "テロップ", "position": "none"})
+    assert Renderer(script, config=AppConfig())._create_teletext_clip(script.scenes[0]) is None
+
+
+def test_subtitle_position_none_outputs_nothing() -> None:
+    script = VideoScript.model_validate({
+        "video": {"width": 640, "height": 360, "subtitle": {"position": "none"}},
+        "scenes": [{"id": "s1", "image": "a.png", "duration": 2.0, "voiceover": "字幕です"}],
+    })
+    renderer = Renderer(script, config=AppConfig())
+    assert renderer._create_subtitle_clip(script.scenes[0], text="字幕です") is None
+
+
 def _teletext_lines(script) -> int:
     """テロップの表示行数（単一行ならクリップ1つ、複数行なら合成クリップの子の数）。"""
     result = Renderer(script, config=AppConfig())._create_teletext_clip(script.scenes[0])

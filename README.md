@@ -454,7 +454,7 @@ options:
 | キー | 既定値 | 説明 |
 |---|---|---|
 | `font` | `null` | 字幕とテロップのフォント。見つからなければ `assets/fonts/<ファイル名>`、次に config の `default_font` を使用 |
-| `position` | `bottom` | `bottom`（画面下）または `top`（画面上） |
+| `position` | `bottom` | `bottom`（画面下）、`top`（画面上）、`none`（字幕を出力しない） |
 | `style` | | 字幕のスタイル（下記の `style` 参照） |
 
 #### `style`（字幕・テロップ共通）
@@ -519,7 +519,7 @@ scenes:
 | キー | 既定値 | 説明 |
 |---|---|---|
 | `text` | （必須） | テロップの文字。複数行で書くと縦に並べて表示 |
-| `position` | `top_left` | `top_left` / `top_right` / `bottom_left` / `bottom_right` / `center` |
+| `position` | `top_left` | `top_left` / `top_right` / `bottom_left` / `bottom_right` / `center` / `none`（テロップを出力しない） |
 | `style` | | `style` 参照。`fill` の既定値は白なので、色を付けたい場合は指定する（例: `"#FFE066"`） |
 | `max_line_chars` | `null` | 1行の最大文字数。超える行は自動で折り返す。`null` なら `video.teletext_max_line_chars`、`0` なら折り返さない |
 

@@ -431,7 +431,8 @@ class Renderer:
         # else: scene.subtitle == "" の場合は字幕を表示しない
 
         # テロップを追加
-        if scene.teletext:
+        # position: none のテロップは出力しない
+        if scene.teletext and scene.teletext.position != "none":
             console.log(f"[cyan]シーン {scene.id} にテロップが設定されています[/]")
             teletext_clip = self._create_teletext_clip(scene)
             if teletext_clip:
@@ -509,6 +510,9 @@ class Renderer:
             if window_length <= 0:
                 return None
             subtitle_config = self.script.video.subtitle
+            # position: none の場合は字幕を出力しない
+            if subtitle_config.position == "none":
+                return None
             font = self._resolve_font(subtitle_config.font)
 
             # スタイル設定の解決（個別設定 > config > デフォルト）
@@ -631,7 +635,8 @@ class Renderer:
         """テロップクリップを作成する。複数行の場合は行ごとに分けて表示。"""
         try:
             teletext = scene.teletext
-            if not teletext:
+            # position: none の場合はテロップを出力しない
+            if not teletext or teletext.position == "none":
                 return None
 
             subtitle_config = self.script.video.subtitle
