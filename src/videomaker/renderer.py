@@ -49,7 +49,14 @@ from .errors import AssetError, RenderError, VideoMakerError
 from .models import SceneSpec, SubtitleStyle, VideoScript, parse_color
 from .narration import split_narration
 from .textsplit import split_line
-from .transitions import SpeechSpan, Transition, compose_timeline, fit_to_starts, plan_transitions
+from .transitions import (
+    SpeechSpan,
+    Transition,
+    compose_timeline,
+    fit_to_starts,
+    overlap_after_last_fixed,
+    plan_transitions,
+)
 from .runlog import console, log_exception
 
 
@@ -188,6 +195,16 @@ class Renderer:
         # startを指定したシーンが指定時刻に始まるよう、クロスフェードの重なりを考えて直前のシーンの長さを直す
         fixed_starts = self._fixed_starts(scenes)
         durations = fit_to_starts([scene.duration for scene in scenes], plans, fixed_starts)
+        # 最後のシーンを「BGMの終わりまで」とした場合、その長さはクロスフェードの重なりを考えずに
+        # 決めているので、重なりで前に詰まる分だけ延ばして動画の終わりをBGMの終わりにそろえる
+        if scenes[-1] is self.script.scenes[-1] and scenes[-1].until_bgm_end:
+            extra = overlap_after_last_fixed(plans, fixed_starts)
+            if extra > 0:
+                durations[-1] += extra
+                console.log(
+                    f"[cyan]最後のシーン {scenes[-1].id} をクロスフェードの重なりの分 {extra:.2f}秒延ばします"
+                    f"（{durations[-1]:.2f}秒）[/]"
+                )
         for scene, duration in zip(scenes, durations):
             scene.duration = duration
         clips: list[VideoClip] = []

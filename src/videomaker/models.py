@@ -209,6 +209,13 @@ class SceneSpec(BaseModel):
 
     # video.subtitle とシーンの個別設定を合成した字幕設定（VideoScript の検証時に設定する）
     _subtitle_config: Optional[SubtitleConfig] = PrivateAttr(None)
+    # 長さを「BGMの終わりまで」として決めたか（resolve_durations が設定する）
+    _until_bgm_end: bool = PrivateAttr(False)
+
+    @property
+    def until_bgm_end(self) -> bool:
+        """最後のシーンで、長さをBGMの終わりまでとして決めた場合に True。"""
+        return self._until_bgm_end
 
     @property
     def subtitle_config(self) -> Optional[SubtitleConfig]:

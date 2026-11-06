@@ -130,6 +130,19 @@ def fit_to_starts(
     return result
 
 
+def overlap_after_last_fixed(plans: Sequence[Transition], fixed_starts: Sequence[float | None]) -> float:
+    """最後に開始時刻を合わせたシーンより後ろで、クロスフェードにより動画が短くなる合計時間。
+
+    開始時刻を合わせたシーンまでの重なりは fit_to_starts が直前のシーンを延ばして吸収済みなので、
+    それより後ろの境界の重なりだけを数える。
+    """
+    last_fixed = 0
+    for i, start in enumerate(fixed_starts):
+        if i > 0 and start is not None:
+            last_fixed = i
+    return sum(plan.overlap for plan in plans[last_fixed + 1:])
+
+
 def compose_timeline(clips: Sequence, plans: Sequence[Transition], video_clip_cls, audio_clip_cls):
     """シーンのクリップをトランジション付きで1本の動画にする。
 

@@ -44,6 +44,7 @@ def resolve_durations(
         starts.append(start)
         next_scene = scenes[i + 1] if i + 1 < len(scenes) else None
         needed = narration.get(scene.id, 0.0)
+        scene._until_bgm_end = False
 
         if next_scene is not None and next_scene.start is not None:
             # 次のシーンの開始時刻までの長さにする（startが最優先）
@@ -88,6 +89,8 @@ def resolve_durations(
                     f"最後のシーン {scene.id} の開始時刻 ({start:.2f}秒) がBGMの終わりより後です",
                     hint="start の値か、video.bgm_start を確認してください。",
                 )
+            # クロスフェードの重なりで短くなる分は、トランジション決定後に Renderer が延ばす
+            scene._until_bgm_end = True
             console.log(f"[cyan]最後のシーン {scene.id} をBGMの終わりまで表示します（{duration:.2f}秒）[/]")
         else:
             hint = (

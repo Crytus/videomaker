@@ -14,7 +14,7 @@ from videomaker.pipeline import VideoPipeline
 from videomaker.renderer import Renderer
 from videomaker.script_parser import parse_script
 from videomaker.timeline import resolve_durations
-from videomaker.transitions import Transition, fit_to_starts
+from videomaker.transitions import Transition, fit_to_starts, overlap_after_last_fixed
 
 
 def _script(scenes: list[dict], **video) -> VideoScript:
@@ -109,6 +109,13 @@ def test_resolve_durations_last_scene_until_bgm_end() -> None:
     assert [s.duration for s in script.scenes] == pytest.approx([5.0, 7.0])
 
 
+def test_resolve_durations_marks_last_scene_until_bgm_end() -> None:
+    script = _script([_scene("a", duration=2), _scene("b")])
+    resolve_durations(script.scenes, bgm_remaining=10.0)
+    # BGMの終わりまでとして長さを決めたシーンだけ印が付く
+    assert [s.until_bgm_end for s in script.scenes] == [False, True]
+
+
 def test_resolve_durations_uses_media_length() -> None:
     script = _script([_scene("a", duration=1), {"id": "v", "video": "v.mp4"}])
     resolve_durations(script.scenes, media={"v": 4.2})
@@ -149,6 +156,17 @@ def test_fit_to_starts_with_crossfade() -> None:
     # cは b の終わり（4 + 6 - 0.5 = 9.5秒）から始まるので、dが12秒に始まるよう cは2.5秒
     assert durations[2] == pytest.approx(2.5)
     assert durations[1] == pytest.approx(6.0)
+
+
+def test_overlap_after_last_fixed() -> None:
+    plans = [Transition(), Transition("crossfade", 1.0), Transition("fade", 0.5),
+             Transition("crossfade", 0.5), Transition("crossfade", 0.25)]
+    # 開始時刻を合わせたシーンが無ければ、すべてのクロスフェードの重なりを数える（fadeは重ならない）
+    assert overlap_after_last_fixed(plans, [None] * 5) == pytest.approx(1.75)
+    # シーン3の開始時刻を合わせた場合は、それより後ろの境界（3→4）だけ
+    assert overlap_after_last_fixed(plans, [None, None, None, 6.0, None]) == pytest.approx(0.25)
+    # 最後のシーン自体の開始時刻を合わせた場合は延ばさない
+    assert overlap_after_last_fixed(plans, [None, None, None, None, 9.0]) == pytest.approx(0.0)
 
 
 def test_fixed_starts_with_scene_selection() -> None:
@@ -220,6 +238,31 @@ def test_render_music_video_without_voiceover(tmp_path: Path, capture_renderer, 
     try:
         assert clip.duration == pytest.approx(6.0, abs=0.15)
         assert clip.audio is not None
+    finally:
+        clip.close()
+
+
+def test_render_last_scene_until_bgm_end_with_crossfade(tmp_path: Path, capture_renderer) -> None:
+    from moviepy import VideoFileClip
+
+    # start を使わず duration だけで並べ、最後のシーンは長さを指定しない
+    scenes = (
+        "  - id: a\n    image: a.png\n    duration: 2\n"
+        "  - id: b\n    image: b.png\n    duration: 2\n"
+        "  - id: c\n    image: a.png\n"
+    )
+    script_path = _write_mv_script(tmp_path, "  bgm_loop: false\n", scenes=scenes)
+    out = tmp_path / "out.mp4"
+    VideoPipeline(script_path, config=AppConfig(video_encoder="cpu")).render(output_path=out)
+
+    timeline = capture_renderer["timeline"]
+    # クロスフェード（0.5秒×2回）で前に詰まっても、最後のシーンはBGMの終わり（6秒）まで
+    assert [start for _, start, _ in timeline] == pytest.approx([0.0, 1.5, 3.0])
+    assert timeline[-1][2] == pytest.approx(6.0)
+
+    clip = VideoFileClip(str(out))
+    try:
+        assert clip.duration == pytest.approx(6.0, abs=0.15)
     finally:
         clip.close()
 
