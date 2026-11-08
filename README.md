@@ -14,6 +14,7 @@ YAMLで書いたシナリオから、静止画・動画素材にナレーショ�
 - シーンの開始時刻を指定して曲に合わせて切り替える、ミュージックビデオ向けの機能
 - 低解像度・低fpsで素早く内容を確認できるプレビューモード
 - 音声を合成せず字幕・テロップだけで作る音声なしモード（アフレコ用）
+- ナレーションだけの音声ファイル（WAV / MP3 / AAC）の書き出し（動画と時刻をそろえる、またはシーン間を詰めて連結）
 - NVIDIA GPU（NVENC）によるハードウェアエンコード
 
 ---
@@ -201,7 +202,7 @@ videomaker render pylori1.yaml           # -> dist/pylori1.mp4
 
 ### 実行ログ
 
-`validate` / `render` / `preview` を実行すると、画面に表示した内容が `logs/日時_コマンド名_シナリオ名.log`（例: `logs/20261029_103000_render_story.log`）にも保存されます。ログファイルは新しいものから 30 個まで残し、それより古いものは自動で削除します。
+`validate` / `render` / `preview` / `narration` を実行すると、画面に表示した内容が `logs/日時_コマンド名_シナリオ名.log`（例: `logs/20261029_103000_render_story.log`）にも保存されます。ログファイルは新しいものから 30 個まで残し、それより古いものは自動で削除します。
 
 - 処理を止めるほどではない問題（BGM が短い、動画素材が指定時間より短い、など）は「警告」としてログに記録されます。実行の終わりに警告があった場合は、`警告が N 件ありました。内容をログファイルで確認してください: ...` と表示されます。
 - moviepy などのライブラリが出す警告（`UserWarning` など）は、進捗表示を崩さないよう画面には出さず、ログファイルにだけ記録します。数字だけが違う同じ種類の警告（フレーム番号違いなど）は 1 件にまとめます。
@@ -241,6 +242,33 @@ videomaker render pylori1.yaml           # -> dist/pylori1.mp4
 videomaker preview pylori1.yaml -s 1-2 -s 1-3          # 2シーンだけ確認
 videomaker preview pylori1.yaml --scale 0.25 --fps 5   # さらに軽く
 videomaker render  pylori1.yaml --encoder cpu          # GPU を使わずに書き出す
+```
+
+### `videomaker narration SCRIPT`
+
+ナレーションだけの音声ファイルを書き出します（BGM・動画素材の音は含めません）。動画は作らないので、`render` より短時間で終わります。動画編集ソフトでナレーションを別トラックとして扱いたい場合や、音声だけを使いたい場合に使います。
+
+| オプション | 説明 |
+|---|---|
+| `--mode sync\|concat`, `-m` | 出力方式（既定: `sync`）。下表参照 |
+| `--format wav\|mp3\|aac`, `-f` | 出力形式。省略時は `--out` の拡張子（`.wav` / `.mp3` / `.m4a` / `.aac`）から決め、それもなければ `wav` |
+| `--out PATH` | 出力先。省略時は動画の出力先と同じ場所に `<名前>_narration.<拡張子>`（`concat` のときは `<名前>_narration_concat.<拡張子>`） |
+| `--scene ID`, `-s ID` | 指定したシーンだけを出力（複数回指定可） |
+| `--config`, `--voice-cache` | `render` と同じ |
+
+| 出力方式 | 内容 |
+|---|---|
+| `sync` | 動画と同じ時刻にナレーションを配置します。ファイルの長さは動画と同じで、ナレーションの無い区間は無音になります。シーン切り替え（クロスフェードなど）・`start` 指定・`--scene` も動画と同じように反映されるので、動画の音声トラックと差し替えたり重ねたりしてもずれません |
+| `concat` | シーン間の空きを詰めてナレーションだけを連結します。各シーンの前後の無音（`voice_margin_before` / `voice_margin_after`）と、シーン切り替えの間（シーンの `interval`、未指定なら `video.scene_interval`）は残します。ナレーションの無いシーンは含めません |
+
+- 音量（config の `voice_volume`、シーンの `voice_override.volume`）は動画と同じように反映されます。
+- サンプリングレートは 44.1kHz・ステレオです。MP3 / AAC のビットレートは 192kbps です（AAC は `.m4a` 形式）。
+- 音声なしモード（`options.no_voice: true`）のシナリオでは使えません。
+
+```powershell
+videomaker narration story.yaml                          # dist/story_narration.wav（動画と同じ時刻）
+videomaker narration story.yaml -m concat -f mp3         # dist/story_narration_concat.mp3（詰めて連結）
+videomaker narration story.yaml --out voice/story.m4a    # 拡張子から AAC で出力
 ```
 
 ### `videomaker clear [SCRIPT]`
@@ -857,6 +885,11 @@ videomaker preview story.yaml --no-voice      # -> dist/story_novoice_preview.mp
 ---
 
 ## 修正履歴
+
+### 2026-11
+
+- **ナレーション音声の書き出し**: `videomaker narration` コマンドで、ナレーションだけの音声ファイルを WAV / MP3 / AAC で書き出せるようにした。動画と同じ時刻に配置する方式（`sync`）と、シーン間を詰めて連結する方式（`concat`）を選べる（[`videomaker narration`](#videomaker-narration-script)参照）。
+- **出力のリダイレクト時に止まる問題を修正**: 出力をパイプやファイルにリダイレクトすると文字コードが cp932 になり、字幕などに「—」（全角ダッシュ）や絵文字など cp932 に無い文字があると `UnicodeEncodeError` で処理が止まっていた。画面への出力ではそれらの文字を「?」に置き換えて処理を続けるようにした（ログファイルには元の文字のまま記録する）。
 
 ### 2026-10
 

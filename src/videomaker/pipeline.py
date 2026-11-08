@@ -101,6 +101,60 @@ class VideoPipeline:
         settings: RenderSettings | None = None,
     ) -> Path:
         """レンダリングを実行する。"""
+        audio_map, line_timings, start_offset = self._prepare_audio(scene_ids)
+        renderer = Renderer(
+            self.script,
+            config=self.config,
+            settings=settings,
+            no_voice=self.no_voice,
+            line_timings=line_timings,
+            start_offset=start_offset,
+        )
+        result = renderer.render(
+            output_path=output_path,
+            scene_ids=scene_ids,
+            audio_map=audio_map,
+        )
+        if self.no_voice:
+            self._print_timetable(renderer.timeline)
+        return result
+
+    def export_narration(
+        self,
+        *,
+        output_path: Path,
+        scene_ids: Iterable[str] | None = None,
+        mode: str = "sync",
+        audio_format: str = "wav",
+    ) -> Path:
+        """ナレーションだけの音声ファイルを書き出す（mode: sync / concat、audio_format: wav / mp3 / aac）。"""
+        if self.no_voice:
+            raise VideoMakerError(
+                "音声なしモードではナレーション音声を出力できません",
+                hint="シナリオの options.no_voice を外してください。",
+            )
+        audio_map, line_timings, start_offset = self._prepare_audio(scene_ids)
+        renderer = Renderer(
+            self.script,
+            config=self.config,
+            line_timings=line_timings,
+            start_offset=start_offset,
+        )
+        return renderer.write_narration(
+            output_path=output_path,
+            scene_ids=scene_ids,
+            audio_map=audio_map,
+            mode=mode,
+            audio_format=audio_format,
+        )
+
+    def _prepare_audio(
+        self, scene_ids: Iterable[str] | None
+    ) -> tuple[dict[str, Path], dict[str, list[tuple[float, float]]], float]:
+        """ナレーションを合成し、各シーンの長さを決める。
+
+        戻り値は (シーンID → 音声ファイル, シーンID → 各行の音声区間, 書き出す最初のシーンの開始時刻)。
+        """
         script = self.script
         no_voice = self.no_voice
         # 音声なしモードやナレーションの無いシーンだけの場合はVoiceboxに接続しない（必要になったときに作る）
@@ -287,22 +341,7 @@ class VideoPipeline:
                     start_offset = start
                     break
 
-        renderer = Renderer(
-            script,
-            config=self.config,
-            settings=settings,
-            no_voice=no_voice,
-            line_timings=line_timings,
-            start_offset=start_offset,
-        )
-        result = renderer.render(
-            output_path=output_path,
-            scene_ids=scene_ids,
-            audio_map=audio_map,
-        )
-        if no_voice:
-            self._print_timetable(renderer.timeline)
-        return result
+        return audio_map, line_timings, start_offset
 
     def _estimate_duration(self, scene: SceneSpec, log: bool = True) -> float:
         """音声なしモードで、ナレーションの文字数からシーン長を見積もる。

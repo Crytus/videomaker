@@ -14,8 +14,8 @@ from .config import AppConfig, load_config
 from .errors import VideoMakerError
 from .models import Options
 from .pipeline import VideoPipeline
-from .renderer import RenderSettings
-from .runlog import console, end_session, error_console, log_exception, start_session
+from .renderer import NARRATION_EXTENSIONS, NARRATION_FORMATS, NARRATION_MODES, RenderSettings
+from .runlog import configure_stdio, console, end_session, error_console, log_exception, start_session
 from .script_parser import parse_script
 from .voicebox import clear_voice_cache
 
@@ -37,6 +37,8 @@ def _main_options(
     ),
 ) -> None:
     global _debug, _log_dir
+    # 出力をリダイレクトしたとき（cp932）に表示できない文字で止まらないようにする
+    configure_stdio()
     _debug = debug
     _log_dir = log_dir
 
@@ -233,6 +235,64 @@ def preview(
     settings = _build_settings(pipeline, preview=True, encoder=encoder, fps=fps, scale=scale)
     pipeline.render(output_path=output_path, scene_ids=scene, settings=settings)
     console.print(f"[green]プレビュー完了: {output_path}[/]")
+
+
+def _narration_format(output: Optional[Path], audio_format: Optional[str]) -> str:
+    """出力形式を決める（--format > 出力先の拡張子 > wav）。"""
+    if audio_format:
+        name = audio_format.lower()
+        if name not in NARRATION_FORMATS:
+            raise typer.BadParameter(
+                f"{audio_format}（指定できる値: {', '.join(NARRATION_FORMATS)}）", param_hint="--format"
+            )
+        return name
+    if output and output.suffix:
+        name = NARRATION_EXTENSIONS.get(output.suffix.lower())
+        if name is None:
+            raise typer.BadParameter(
+                f"拡張子 {output.suffix} から形式を判断できません。--format で指定してください", param_hint="--out"
+            )
+        return name
+    return "wav"
+
+
+def _default_narration_output(pipeline: VideoPipeline, script: Path, *, mode: str, audio_format: str) -> Path:
+    """動画の出力先と同じ場所に「<名前>_narration.<拡張子>」の名前で出力する。"""
+    if pipeline.script.video.output_file:
+        base = Path(pipeline.script.video.output_file)
+    else:
+        base = Path("dist") / f"{script.stem}.mp4"
+    suffix = "_narration" if mode == "sync" else "_narration_concat"
+    return base.with_name(f"{base.stem}{suffix}{NARRATION_FORMATS[audio_format][1]}")
+
+
+@app.command(help="ナレーションだけの音声ファイルを書き出します（動画は作りません）")
+@handle_errors
+def narration(
+    script: Path = typer.Argument(..., exists=True, readable=True),
+    output: Optional[Path] = typer.Option(None, "--out", help="出力先パス"),
+    mode: str = typer.Option(
+        "sync", "--mode", "-m",
+        help="sync: 動画と同じ時刻に配置（長さも動画と同じ） / concat: シーン間を詰めて連結",
+    ),
+    audio_format: Optional[str] = typer.Option(
+        None, "--format", "-f", help="wav / mp3 / aac（省略時は --out の拡張子、それもなければ wav）"
+    ),
+    scene: Optional[list[str]] = typer.Option(None, "--scene", "-s", help="特定シーンのみ出力（複数指定可）"),
+    config: Optional[Path] = typer.Option(None, "--config", help="設定ファイルパス"),
+    voice_cache: Optional[Path] = typer.Option(
+        None, "--voice-cache", help="音声キャッシュディレクトリ"
+    ),
+) -> None:
+    mode = mode.lower()
+    if mode not in NARRATION_MODES:
+        raise typer.BadParameter(f"{mode}（指定できる値: {', '.join(NARRATION_MODES)}）", param_hint="--mode")
+    fmt = _narration_format(output, audio_format)
+    pipeline = _build_pipeline(script, config_path=config, voice_cache=voice_cache)
+    pipeline.validate()
+    output_path = output or _default_narration_output(pipeline, script, mode=mode, audio_format=fmt)
+    pipeline.export_narration(output_path=output_path, scene_ids=scene, mode=mode, audio_format=fmt)
+    console.print(f"[green]ナレーション音声の書き出し完了: {output_path}[/]")
 
 
 @app.command(help="音声キャッシュ(*.wav)をすべて削除します")

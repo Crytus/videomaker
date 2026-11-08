@@ -145,3 +145,47 @@ def test_cli_error_traceback_goes_to_log_file(tmp_path: Path, monkeypatch) -> No
     assert "ログファイル" in result.output
     text = _read_single_log(log_dir)
     assert "Traceback" in text and "想定外" in text
+
+
+def test_configure_stdio_replaces_unencodable_chars(monkeypatch) -> None:
+    """cp932 の出力先でも、表示できない文字で止まらず「?」に置き換える。"""
+    import io
+    import sys
+
+    buffer = io.BytesIO()
+    stream = io.TextIOWrapper(buffer, encoding="cp932")
+    monkeypatch.setattr(sys, "stdout", stream)
+    runlog.configure_stdio()
+    print("座る時間——立つ時間")
+    stream.flush()
+    # 文字コードは cp932 のまま（日本語はそのまま、全角ダッシュだけ置き換わる）
+    assert buffer.getvalue().decode("cp932").strip() == "座る時間??立つ時間"
+
+
+def test_cli_with_cp932_output(tmp_path: Path) -> None:
+    """出力をリダイレクトして cp932 になっても、cp932 に無い文字で処理が止まらない。"""
+    import os
+    import subprocess
+    import sys
+
+    from PIL import Image
+
+    Image.new("RGB", (64, 48)).save(tmp_path / "bg—1.png")
+    script = tmp_path / "s.yaml"
+    script.write_text(
+        "video:\n  width: 64\n  height: 48\nscenes:\n  - id: s1\n    image: bg—1.png\n    duration: 1\n",
+        encoding="utf-8",
+    )
+    env = dict(os.environ, PYTHONIOENCODING="cp932", COLUMNS="300")
+    result = subprocess.run(
+        [sys.executable, "-m", "videomaker.cli", "--log-dir", str(tmp_path / "logs"), "validate", str(script)],
+        capture_output=True,
+        env=env,
+        cwd=tmp_path,
+        timeout=120,
+    )
+    stdout = result.stdout.decode("cp932")
+    assert result.returncode == 0, result.stderr.decode("cp932", errors="replace")
+    assert "bg?1.png" in stdout
+    # ログファイルには元の文字のまま残る
+    assert "bg—1.png" in _read_single_log(tmp_path / "logs")

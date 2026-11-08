@@ -56,8 +56,24 @@ from .transitions import (
     fit_to_starts,
     overlap_after_last_fixed,
     plan_transitions,
+    scene_starts,
 )
 from .runlog import console, log_exception
+
+
+# ナレーション音声の出力形式 → (FFmpegのコーデック, 拡張子)
+NARRATION_FORMATS: dict[str, tuple[str, str]] = {
+    "wav": ("pcm_s16le", ".wav"),
+    "mp3": ("libmp3lame", ".mp3"),
+    "aac": ("aac", ".m4a"),
+}
+# 出力ファイルの拡張子 → 出力形式（--format を省略したときに使う）
+NARRATION_EXTENSIONS = {".wav": "wav", ".mp3": "mp3", ".m4a": "aac", ".aac": "aac"}
+# ナレーション音声の出力方式。sync: 動画と同じ時刻に配置、concat: シーン間を詰めて連結
+NARRATION_MODES = ("sync", "concat")
+# ナレーション音声のサンプリングレート（動画の音声と同じ）と、MP3/AACのビットレート
+NARRATION_FPS = 44100
+NARRATION_BITRATE = "192k"
 
 
 @dataclass
@@ -182,43 +198,8 @@ class Renderer:
         scene_ids: Iterable[str] | None,
         audio_map: dict[str, Path],
     ) -> Path:
-        scenes = self._select_scenes(scene_ids)
-        for scene in scenes:
-            if scene.duration is None:
-                raise RenderError(
-                    f"シーン {scene.id} の長さが決まりません",
-                    hint="duration を指定するか、voiceover の音声が生成されるようにしてください。",
-                )
-
-        # 字幕の表示区間を決めるため、クリップを作る前にトランジションを決める
-        plans = plan_transitions(scenes, self.script.video, self._speech_spans(scenes, audio_map))
-        # startを指定したシーンが指定時刻に始まるよう、クロスフェードの重なりを考えて直前のシーンの長さを直す
-        fixed_starts = self._fixed_starts(scenes)
-        durations = fit_to_starts([scene.duration for scene in scenes], plans, fixed_starts)
-        # 最後のシーンを「BGMの終わりまで」とした場合、その長さはクロスフェードの重なりを考えずに
-        # 決めているので、重なりで前に詰まる分だけ延ばして動画の終わりをBGMの終わりにそろえる
-        if scenes[-1] is self.script.scenes[-1] and scenes[-1].until_bgm_end:
-            extra = overlap_after_last_fixed(plans, fixed_starts)
-            if extra > 0:
-                durations[-1] += extra
-                console.log(
-                    f"[cyan]最後のシーン {scenes[-1].id} をクロスフェードの重なりの分 {extra:.2f}秒延ばします"
-                    f"（{durations[-1]:.2f}秒）[/]"
-                )
-        for scene, duration in zip(scenes, durations):
-            scene.duration = duration
-        clips: list[VideoClip] = []
-        for i, scene in enumerate(scenes):
-            # クロスフェードで前後のシーンと重なる区間は字幕を出さない
-            next_overlap = plans[i + 1].overlap if i + 1 < len(scenes) else 0.0
-            clip = self._build_scene_clip(
-                scene, audio_map, subtitle_window=(plans[i].overlap, scene.duration - next_overlap)
-            )
-            next_fixed = i + 1 < len(scenes) and fixed_starts[i + 1] is not None
-            if next_fixed and abs(clip.duration - scene.duration) > 1e-3:
-                # 次のシーンの開始時刻がずれないよう、動画素材の長さではなく決めた長さにそろえる
-                clip = clip.with_duration(scene.duration)
-            clips.append(clip)
+        scenes, plans, fixed_starts = self._layout(scene_ids, audio_map)
+        clips = self._build_clips(scenes, plans, fixed_starts, audio_map)
 
         # 毎フレーム合成（"compose"連結）は遅いので、トランジション区間だけ混ぜる独自の連結を使う
         final, starts = compose_timeline(clips, plans, VideoClip, CompositeAudioClip)
@@ -269,6 +250,175 @@ class Renderer:
         except (OSError, AttributeError):
             pass
         return output_path
+
+    def write_narration(
+        self,
+        *,
+        output_path: Path,
+        scene_ids: Iterable[str] | None,
+        audio_map: dict[str, Path],
+        mode: str = "sync",
+        audio_format: str = "wav",
+    ) -> Path:
+        """ナレーションだけの音声ファイルを書き出す（BGM・動画素材の音は含めない）。
+
+        mode="sync" は動画と同じ時刻にナレーションを配置する（長さも動画と同じ）。
+        mode="concat" はシーン間を詰めて連結する（各シーンの前後の無音と、シーン切り替えの間は残す）。
+        """
+        if mode not in NARRATION_MODES:
+            raise VideoMakerError(
+                f"ナレーションの出力方式が不正です: {mode}", hint=f"指定できる値: {', '.join(NARRATION_MODES)}"
+            )
+        if audio_format not in NARRATION_FORMATS:
+            raise VideoMakerError(
+                f"音声の形式が不正です: {audio_format}", hint=f"指定できる値: {', '.join(NARRATION_FORMATS)}"
+            )
+        try:
+            if mode == "sync":
+                parts, total = self._sync_narration_parts(scene_ids, audio_map)
+            else:
+                parts, total = self._concat_narration_parts(scene_ids, audio_map)
+            if not parts:
+                raise VideoMakerError(
+                    "出力するナレーションがありません",
+                    hint="voiceover のあるシーンを含めてください（--scene の指定も確認してください）。",
+                )
+            track = CompositeAudioClip(parts).with_duration(total)
+            codec, _ = NARRATION_FORMATS[audio_format]
+            try:
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                raise RenderError(f"出力先ディレクトリを作成できません: {output_path.parent} ({exc})") from exc
+            console.log(
+                f"ナレーション音声を書き出し中: {output_path} (方式={mode}, 形式={audio_format}, 長さ={total:.2f}秒)"
+            )
+            try:
+                track.write_audiofile(
+                    str(output_path),
+                    fps=NARRATION_FPS,
+                    codec=codec,
+                    bitrate=None if audio_format == "wav" else NARRATION_BITRATE,
+                    logger=None,
+                )
+            except PermissionError as exc:
+                raise RenderError(
+                    f"出力ファイルに書き込めません: {output_path}",
+                    hint="音声プレーヤーなどでファイルを開いていないか確認してください。",
+                ) from exc
+            except Exception as exc:
+                raise RenderError(
+                    f"ナレーション音声の書き出しに失敗しました: {output_path}\n  {_first_line(exc)}",
+                    hint="出力先の空き容量や書き込み権限を確認してください。",
+                ) from exc
+            return output_path
+        finally:
+            self._close_opened_media()
+
+    def _sync_narration_parts(
+        self, scene_ids: Iterable[str] | None, audio_map: dict[str, Path]
+    ) -> tuple[list, float]:
+        """動画と同じ時刻に置いたナレーション音声の一覧と、動画全体の長さを返す。
+
+        シーンの開始時刻を動画と完全に一致させるため、動画と同じ手順でシーンのクリップを作る
+        （映像のエンコードはしないので、クリップを作るだけなら時間はかからない）。
+        """
+        scenes, plans, fixed_starts = self._layout(scene_ids, audio_map)
+        clips = self._build_clips(scenes, plans, fixed_starts, audio_map)
+        starts = scene_starts([clip.duration for clip in clips], plans)
+        self.timeline = [
+            (scene, start, start + clip.duration, plan)
+            for scene, start, clip, plan in zip(scenes, starts, clips, plans)
+        ]
+        total = starts[-1] + clips[-1].duration
+        parts = []
+        for scene, clip, start in zip(scenes, clips, starts):
+            audio_path = audio_map.get(scene.id)
+            # ナレーションの無いシーン（動画素材の元の音だけのシーンなど）は含めない
+            if not audio_path or not audio_path.exists() or clip.audio is None:
+                continue
+            # 動画の書き出し（compose_timeline）と同じく、シーンより長い音声は切り詰める
+            parts.append(_trim_to(self._voice_clip(scene, audio_path), clip.duration).with_start(start))
+        return parts, total
+
+    def _concat_narration_parts(
+        self, scene_ids: Iterable[str] | None, audio_map: dict[str, Path]
+    ) -> tuple[list, float]:
+        """シーン間を詰めて並べたナレーション音声の一覧と、全体の長さを返す。
+
+        各シーンの音声（前後の無音 voice_margin_* を含む）を順につなぎ、シーンの間には
+        シーン切り替えの間（シーンの interval、未指定なら video.scene_interval）を入れる。
+        """
+        parts = []
+        cursor = 0.0
+        previous: SceneSpec | None = None
+        for scene in self._select_scenes(scene_ids):
+            audio_path = audio_map.get(scene.id)
+            if not audio_path or not audio_path.exists():
+                continue
+            if parts:
+                # 前のシーンからこのシーンへの切り替えの間
+                cursor += previous.interval if previous.interval is not None else self.script.video.scene_interval
+            voice = self._voice_clip(scene, audio_path)
+            parts.append(voice.with_start(cursor))
+            cursor += voice.duration
+            previous = scene
+        return parts, cursor
+
+    def _layout(
+        self, scene_ids: Iterable[str] | None, audio_map: dict[str, Path]
+    ) -> tuple[list[SceneSpec], list[Transition], list[float | None]]:
+        """書き出すシーンを選び、トランジションと各シーンの長さを確定する。
+
+        戻り値は (シーン, 各シーンへの切り替え, 各シーンの指定開始時刻)。scene.duration は確定値に更新する。
+        """
+        scenes = self._select_scenes(scene_ids)
+        for scene in scenes:
+            if scene.duration is None:
+                raise RenderError(
+                    f"シーン {scene.id} の長さが決まりません",
+                    hint="duration を指定するか、voiceover の音声が生成されるようにしてください。",
+                )
+
+        # 字幕の表示区間を決めるため、クリップを作る前にトランジションを決める
+        plans = plan_transitions(scenes, self.script.video, self._speech_spans(scenes, audio_map))
+        # startを指定したシーンが指定時刻に始まるよう、クロスフェードの重なりを考えて直前のシーンの長さを直す
+        fixed_starts = self._fixed_starts(scenes)
+        durations = fit_to_starts([scene.duration for scene in scenes], plans, fixed_starts)
+        # 最後のシーンを「BGMの終わりまで」とした場合、その長さはクロスフェードの重なりを考えずに
+        # 決めているので、重なりで前に詰まる分だけ延ばして動画の終わりをBGMの終わりにそろえる
+        if scenes[-1] is self.script.scenes[-1] and scenes[-1].until_bgm_end:
+            extra = overlap_after_last_fixed(plans, fixed_starts)
+            if extra > 0:
+                durations[-1] += extra
+                console.log(
+                    f"[cyan]最後のシーン {scenes[-1].id} をクロスフェードの重なりの分 {extra:.2f}秒延ばします"
+                    f"（{durations[-1]:.2f}秒）[/]"
+                )
+        for scene, duration in zip(scenes, durations):
+            scene.duration = duration
+        return scenes, plans, fixed_starts
+
+    def _build_clips(
+        self,
+        scenes: list[SceneSpec],
+        plans: list[Transition],
+        fixed_starts: list[float | None],
+        audio_map: dict[str, Path],
+    ) -> list[VideoClip]:
+        """各シーンのクリップ（字幕・テロップ・ナレーション付き）を作る。"""
+        clips: list[VideoClip] = []
+        for i, scene in enumerate(scenes):
+            # クロスフェードで前後のシーンと重なる区間は字幕を出さない
+            next_overlap = plans[i + 1].overlap if i + 1 < len(scenes) else 0.0
+            clip = self._build_scene_clip(
+                scene, audio_map, subtitle_window=(plans[i].overlap, scene.duration - next_overlap)
+            )
+            next_fixed = i + 1 < len(scenes) and fixed_starts[i + 1] is not None
+            if next_fixed and abs(clip.duration - scene.duration) > 1e-3:
+                # 次のシーンの開始時刻がずれないよう、動画素材の長さではなく決めた長さにそろえる
+                clip = clip.with_duration(scene.duration)
+            clips.append(clip)
+        return clips
 
     def _encoder_options(self, codec: str) -> tuple[str, list[str]]:
         """エンコーダごとのプリセットと追加のFFmpeg引数を返す。"""
@@ -380,43 +530,7 @@ class Renderer:
 
         audio_path = audio_map.get(scene.id)
         if audio_path and audio_path.exists():
-            voice = self._open_media(lambda: AudioFileClip(str(audio_path)), scene.id, "音声", audio_path)
-
-            # 音量を調整（個別設定 > config > デフォルト）
-            volume = (
-                scene.voice_override.volume if scene.voice_override and scene.voice_override.volume is not None
-                else (self.config.voice_volume if self.config else 1.0)
-            )
-            if volume != 1.0:
-                voice = voice.with_volume_scaled(volume)
-                console.log(f"[cyan]音量を調整: {scene.id} -> {volume * 100:.0f}%[/]")
-
-            # 音声の前後に無音を追加
-            margin_before = self.config.voice_margin_before if self.config else 0.0
-            margin_after = self.config.voice_margin_after if self.config else 0.0
-
-            if margin_before > 0 or margin_after > 0:
-                audio_clips = []
-
-                # 前の無音
-                if margin_before > 0:
-                    silence_before = AudioClip(lambda t: 0, duration=margin_before, fps=voice.fps or 44100)
-                    audio_clips.append(silence_before)
-                    console.log(f"[cyan]音声の前に {margin_before}秒の無音を追加: {scene.id}[/]")
-
-                # 元の音声
-                audio_clips.append(voice)
-
-                # 後の無音
-                if margin_after > 0:
-                    silence_after = AudioClip(lambda t: 0, duration=margin_after, fps=voice.fps or 44100)
-                    audio_clips.append(silence_after)
-                    console.log(f"[cyan]音声の後に {margin_after}秒の無音を追加: {scene.id}[/]")
-
-                # 連結
-                voice = concatenate_audioclips(audio_clips)
-
-            clip = clip.with_audio(voice)
+            clip = clip.with_audio(self._voice_clip(scene, audio_path))
         elif not self.no_voice and scene.voiceover.strip():
             console.warn(f"音声が見つかりません: {scene.id}")
 
@@ -475,6 +589,45 @@ class Renderer:
         if clip.mask is not None:
             clip = clip.without_mask()
         return clip
+
+    def _voice_clip(self, scene: SceneSpec, audio_path: Path):
+        """シーンのナレーション音声に、音量と前後の無音（voice_margin_*）を適用したクリップを返す。"""
+        voice = self._open_media(lambda: AudioFileClip(str(audio_path)), scene.id, "音声", audio_path)
+
+        # 音量を調整（個別設定 > config > デフォルト）
+        volume = (
+            scene.voice_override.volume if scene.voice_override and scene.voice_override.volume is not None
+            else (self.config.voice_volume if self.config else 1.0)
+        )
+        if volume != 1.0:
+            voice = voice.with_volume_scaled(volume)
+            console.log(f"[cyan]音量を調整: {scene.id} -> {volume * 100:.0f}%[/]")
+
+        # 音声の前後に無音を追加
+        margin_before = self.config.voice_margin_before if self.config else 0.0
+        margin_after = self.config.voice_margin_after if self.config else 0.0
+
+        if margin_before > 0 or margin_after > 0:
+            audio_clips = []
+
+            # 前の無音
+            if margin_before > 0:
+                silence_before = AudioClip(lambda t: 0, duration=margin_before, fps=voice.fps or 44100)
+                audio_clips.append(silence_before)
+                console.log(f"[cyan]音声の前に {margin_before}秒の無音を追加: {scene.id}[/]")
+
+            # 元の音声
+            audio_clips.append(voice)
+
+            # 後の無音
+            if margin_after > 0:
+                silence_after = AudioClip(lambda t: 0, duration=margin_after, fps=voice.fps or 44100)
+                audio_clips.append(silence_after)
+                console.log(f"[cyan]音声の後に {margin_after}秒の無音を追加: {scene.id}[/]")
+
+            # 連結
+            voice = concatenate_audioclips(audio_clips)
+        return voice
 
     def _freeze_static(self, clip, overlays, output_size: tuple[int, int]) -> VideoClip:
         """静止画シーンを、字幕の切り替わり区間ごとに1回だけ合成するクリップに置き換える。
@@ -921,6 +1074,13 @@ def _fit_cover(clip, size: tuple[int, int]):
     if tuple(clip.size) != tuple(size):
         clip = clip.resized(size)
     return clip
+
+
+def _trim_to(audio, duration: float):
+    """音声が指定の長さより長ければ切り詰める。"""
+    if audio.duration is not None and audio.duration > duration:
+        return audio.subclipped(0, duration)
+    return audio
 
 
 def _load_media(loader, scene_id: str, kind: str, path: Path):

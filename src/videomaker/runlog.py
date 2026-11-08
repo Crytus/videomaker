@@ -80,6 +80,24 @@ class LogConsole(Console):
             _session.file_console.log(f"警告: {message}", _stack_offset=_stack_offset + 1)
 
 
+def configure_stdio() -> None:
+    """標準出力・標準エラー出力で表示できない文字があっても止まらないようにする。
+
+    出力をパイプやファイルにリダイレクトすると、Windows では文字コードが cp932（シフトJIS）になり、
+    「—」（全角ダッシュ）や絵文字などを表示しようとすると UnicodeEncodeError で処理が止まる。
+    文字コードは変えず（受け取る側が文字化けしないように）、表示できない文字だけを「?」に置き換える。
+    ログファイルは UTF-8 で書くので、元の文字のまま残る。
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue  # テスト用の出力先など、設定を変えられないもの
+        try:
+            reconfigure(errors="replace")
+        except (ValueError, OSError):
+            pass  # 既に閉じられているなど
+
+
 # 各モジュールで共有するConsole
 console = LogConsole()
 error_console = LogConsole(stderr=True)
