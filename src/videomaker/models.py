@@ -162,6 +162,66 @@ class TeletextConfig(BaseModel):
     )
 
 
+# focus のキーワードと位置（0.0〜1.0）の対応
+_FOCUS_X_KEYWORDS = {"left": 0.0, "center": 0.5, "right": 1.0}
+_FOCUS_Y_KEYWORDS = {"top": 0.0, "center": 0.5, "bottom": 1.0}
+
+
+def _parse_focus_value(value, keywords: dict[str, float], axis: str) -> float:
+    """focus の1軸分の値（キーワードまたは0.0〜1.0の数値）を数値に変換する。"""
+    if isinstance(value, bool):
+        raise ValueError(f"focus.{axis} には 0.0〜1.0 の数値か {' / '.join(keywords)} を指定してください")
+    if isinstance(value, str):
+        key = value.strip().lower()
+        if key in keywords:
+            return keywords[key]
+        raise ValueError(
+            f"focus.{axis} の指定が不正です: {value!r}（{' / '.join(keywords)} または 0.0〜1.0 の数値）"
+        )
+    if isinstance(value, (int, float)):
+        if not 0.0 <= value <= 1.0:
+            raise ValueError(f"focus.{axis} は 0.0〜1.0 の範囲で指定してください: {value}")
+        return float(value)
+    raise ValueError(f"focus.{axis} には 0.0〜1.0 の数値か {' / '.join(keywords)} を指定してください")
+
+
+class FocusSpec(BaseModel):
+    """画像・動画素材のうち、画面の中心にしたい位置（素材の左上を0.0、右下を1.0とする割合）。
+
+    素材と出力のアスペクト比が違うときに、どこを切り取って使うかを決める。
+    """
+
+    x: float = Field(0.5, ge=0.0, le=1.0, description="左右の位置（0.0が左端、1.0が右端）")
+    y: float = Field(0.5, ge=0.0, le=1.0, description="上下の位置（0.0が上端、1.0が下端）")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _parse(cls, data):
+        # 数値・キーワードだけの指定は1つの軸の指定として扱う
+        if isinstance(data, FocusSpec):
+            return data
+        if isinstance(data, str):
+            key = data.strip().lower()
+            if key in ("top", "bottom"):
+                return {"y": _FOCUS_Y_KEYWORDS[key]}
+            return {"x": _parse_focus_value(data, _FOCUS_X_KEYWORDS, "x")}
+        if isinstance(data, (int, float)):
+            return {"x": _parse_focus_value(data, _FOCUS_X_KEYWORDS, "x")}
+        if isinstance(data, dict):
+            unknown = set(data) - {"x", "y"}
+            if unknown:
+                raise ValueError(f"focus に指定できるのは x と y だけです: {', '.join(sorted(map(str, unknown)))}")
+            parsed = {}
+            if data.get("x") is not None:
+                parsed["x"] = _parse_focus_value(data["x"], _FOCUS_X_KEYWORDS, "x")
+            if data.get("y") is not None:
+                parsed["y"] = _parse_focus_value(data["y"], _FOCUS_Y_KEYWORDS, "y")
+            return parsed
+        raise ValueError(
+            "focus は left / center / right、0.0〜1.0 の数値、または {x: ..., y: ...} で指定してください"
+        )
+
+
 class VoiceOverride(BaseModel):
     """Voiceboxに渡すシーン単位の上書き設定。"""
 
@@ -203,6 +263,10 @@ class SceneSpec(BaseModel):
     )
     interval: Optional[float] = Field(
         None, ge=0, description="ナレーションが終わってから次のシーンに切り替わるまでの間（秒）。未指定ならvideo.scene_interval"
+    )
+    focus: Optional[FocusSpec] = Field(
+        None,
+        description="素材の比率が出力と違うとき、画面の中心にする位置（left / center / right、0.0〜1.0、{x, y}）。未指定なら中央",
     )
     kenburns: bool = False
     voice_override: Optional[VoiceOverride] = None

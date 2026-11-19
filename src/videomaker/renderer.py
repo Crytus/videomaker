@@ -504,13 +504,14 @@ class Renderer:
                 lambda: _fit_cover(
                     ImageClip(str(scene.image), duration=scene.duration),
                     (self.script.video.width, self.script.video.height),
+                    _scene_focus(scene),
                 ),
                 scene.id, "画像", scene.image,
             )
         elif scene.video:
             clip = self._open_media(lambda: VideoFileClip(str(scene.video)), scene.id, "動画", scene.video)
-            # アスペクト比を保ったまま中央を切り取ってリサイズ
-            clip = _fit_cover(clip, (self.script.video.width, self.script.video.height))
+            # アスペクト比を保ったまま focus の位置（既定は中央）を切り取ってリサイズ
+            clip = _fit_cover(clip, (self.script.video.width, self.script.video.height), _scene_focus(scene))
             # 長さ調整: 指定時間と実際の長さの差が5%以内の場合は実際の長さを使用
             duration_diff = abs(clip.duration - scene.duration)
             if duration_diff / scene.duration <= 0.05:
@@ -1045,30 +1046,51 @@ class Renderer:
         return clip
 
 
-def _center_crop_box(src_size: tuple[int, int], dst_size: tuple[int, int]) -> tuple[int, int, int, int]:
-    """出力のアスペクト比に合わせて、素材の中央を切り取る範囲 (x1, y1, x2, y2) を返す。
+def _center_crop_box(
+    src_size: tuple[int, int],
+    dst_size: tuple[int, int],
+    focus: tuple[float, float] = (0.5, 0.5),
+) -> tuple[int, int, int, int]:
+    """出力のアスペクト比に合わせて、素材を切り取る範囲 (x1, y1, x2, y2) を返す。
 
-    素材の方が横長なら左右を、縦長なら上下を均等に削る。比率が同じなら全体を返す。
+    素材の方が横長なら左右を、縦長なら上下を削る。比率が同じなら全体を返す。
+    focus は画面の中心にしたい位置（素材の幅・高さに対する割合）。既定は中央 (0.5, 0.5)。
+    切り取る範囲が素材からはみ出す場合は、素材の端に合わせる。
     """
     src_w, src_h = src_size
     dst_w, dst_h = dst_size
+    focus_x, focus_y = focus
     # 整数演算で比較して、浮動小数の誤差による1pxの無駄な切り取りを防ぐ
     if src_w * dst_h > dst_w * src_h:
         # 素材の方が横長: 高さを基準に幅を決めて左右を削る
         crop_w = max(1, min(src_w, round(src_h * dst_w / dst_h)))
-        x1 = (src_w - crop_w) // 2
+        x1 = _crop_start(src_w, crop_w, focus_x)
         return x1, 0, x1 + crop_w, src_h
     if src_w * dst_h < dst_w * src_h:
         # 素材の方が縦長: 幅を基準に高さを決めて上下を削る
         crop_h = max(1, min(src_h, round(src_w * dst_h / dst_w)))
-        y1 = (src_h - crop_h) // 2
+        y1 = _crop_start(src_h, crop_h, focus_y)
         return 0, y1, src_w, y1 + crop_h
     return 0, 0, src_w, src_h
 
 
-def _fit_cover(clip, size: tuple[int, int]):
-    """クリップを変形させずに出力サイズへ合わせる（はみ出す部分は中央を基準に切り取る）。"""
-    x1, y1, x2, y2 = _center_crop_box(tuple(clip.size), size)
+def _scene_focus(scene: SceneSpec) -> tuple[float, float]:
+    """シーンの focus 指定を (x, y) で返す。未指定なら中央。"""
+    if scene.focus is None:
+        return (0.5, 0.5)
+    return (scene.focus.x, scene.focus.y)
+
+
+def _crop_start(src_len: int, crop_len: int, focus: float) -> int:
+    """focus の位置を中心に crop_len 分を切り取るときの開始位置を、素材の範囲内に収めて返す。"""
+    # 中央（0.5）のときに従来の (src_len - crop_len) // 2 と同じ値になるよう切り捨てる
+    start = math.floor(src_len * focus - crop_len / 2)
+    return max(0, min(src_len - crop_len, start))
+
+
+def _fit_cover(clip, size: tuple[int, int], focus: tuple[float, float] = (0.5, 0.5)):
+    """クリップを変形させずに出力サイズへ合わせる（はみ出す部分は focus の位置を中心に切り取る）。"""
+    x1, y1, x2, y2 = _center_crop_box(tuple(clip.size), size, focus)
     if (x1, y1, x2, y2) != (0, 0, clip.size[0], clip.size[1]):
         clip = clip.cropped(x1=x1, y1=y1, x2=x2, y2=y2)
     if tuple(clip.size) != tuple(size):
