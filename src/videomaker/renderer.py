@@ -701,6 +701,7 @@ class Renderer:
                 else (self.config.subtitle_stroke_width if self.config else 2)
             )
             background_default = self.config.subtitle_background if self.config else None
+            letter_spacing = _resolve_letter_spacing(subtitle_config.style, subtitle_config)
 
             # テキストを行ごとに分割（空行は除外。長い行は句読点を優先して自動分割）
             # {無音 秒数} は表示しない。行の分け方は音声合成と同じにして、各行の音声のタイミングと対応させる
@@ -716,10 +717,11 @@ class Renderer:
                 else:  # bottom
                     y_position = self.script.video.height - 100 - subtitle_config.style.padding
 
-                txt_clip = TextClip(
+                txt_clip = make_text_clip(
                     text=lines[0],
                     font=font,
                     font_size=font_size,
+                    letter_spacing=letter_spacing,
                     color=color,
                     stroke_color=stroke_color if stroke_color else None,
                     stroke_width=stroke_width if stroke_color else 0,
@@ -771,10 +773,11 @@ class Renderer:
                     duration_per_line = min(span_end, window_end) - current_time
                     if duration_per_line < 0.05:
                         continue
-                    txt_clip = TextClip(
+                    txt_clip = make_text_clip(
                         text=line,
                         font=font,
                         font_size=font_size,
+                        letter_spacing=letter_spacing,
                         color=color,
                         stroke_color=stroke_color if stroke_color else None,
                         stroke_width=stroke_width if stroke_color else 0,
@@ -844,14 +847,16 @@ class Renderer:
                 lines = [part for line in lines for part in split_line(line, max_chars)]
 
             background_default = self.config.teletext_background if self.config else None
+            letter_spacing = _resolve_letter_spacing(teletext.style, subtitle_config)
 
             if len(lines) == 1:
                 # 単一行の場合は従来通り
                 padding = 50
-                txt_clip = TextClip(
+                txt_clip = make_text_clip(
                     text=lines[0],
                     font=font,
                     font_size=font_size,
+                    letter_spacing=letter_spacing,
                     color=color,
                     stroke_color=stroke_color if stroke_color else None,
                     stroke_width=stroke_width if stroke_color else 0,
@@ -895,10 +900,11 @@ class Renderer:
                 for i, line in enumerate(lines):
                     y_pos = start_y + (i * line_spacing)
 
-                    txt_clip = TextClip(
+                    txt_clip = make_text_clip(
                         text=line,
                         font=font,
                         font_size=font_size,
+                        letter_spacing=letter_spacing,
                         color=color,
                         stroke_color=stroke_color if stroke_color else None,
                         stroke_width=stroke_width if stroke_color else 0,
@@ -1129,6 +1135,82 @@ def _first_line(exc: BaseException, limit: int = 300) -> str:
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     summary = lines[0] if len(lines) == 1 else f"{lines[0]} ... {lines[-1]}"
     return summary if len(summary) <= limit else summary[:limit] + "…"
+
+
+def _resolve_letter_spacing(style: SubtitleStyle, subtitle_config) -> float:
+    """字間を決める（style.letter_spacing > video.subtitle.letter_spacing > 0）。"""
+    if style.letter_spacing is not None:
+        return float(style.letter_spacing)
+    return float(getattr(subtitle_config, "letter_spacing", 0) or 0)
+
+
+def make_text_clip(
+    text: str,
+    font: str | None,
+    font_size: int,
+    color: str,
+    stroke_color: str | None = None,
+    stroke_width: int = 0,
+    size: tuple[int | None, int | None] | None = None,
+    duration: float | None = None,
+    letter_spacing: float = 0,
+):
+    """文字クリップを作る。字間（letter_spacing）を指定した場合は1文字ずつ描画する。
+
+    字間が0ならMoviePyのTextClipをそのまま使う。字間を指定した場合も、
+    画像の大きさや文字の位置（ベースライン・縁取りの余白・横方向の中央寄せ）はTextClipに揃える。
+    """
+    if not letter_spacing or "\n" in text or len(text) < 2:
+        kwargs = {}
+        if size is not None:
+            kwargs["size"] = size
+        return TextClip(
+            text=text,
+            font=font,
+            font_size=font_size,
+            color=color,
+            stroke_color=stroke_color,
+            stroke_width=stroke_width,
+            duration=duration,
+            **kwargs,
+        )
+
+    from PIL import ImageDraw, ImageFont
+
+    pil_font = ImageFont.truetype(font, font_size) if font else ImageFont.load_default(font_size)
+    ascent, descent = pil_font.getmetrics()
+    stroke = stroke_width or 0
+
+    # 各文字の描画開始位置。カーニングを保つため、先頭からの文字列の長さに字間を足して求める
+    offsets = [pil_font.getlength(text[:i]) + letter_spacing * i for i in range(len(text))]
+    # 文字列全体の幅 + 字間 × (文字数 - 1) + 両側の縁取り
+    text_width = max(1, math.ceil(pil_font.getlength(text) + letter_spacing * (len(text) - 1)) + stroke * 2)
+    text_height = ascent + descent + stroke * 2
+
+    width = text_width
+    height = text_height
+    if size is not None:
+        width = size[0] if size[0] is not None else text_width
+        height = size[1] if size[1] is not None else text_height
+
+    image = Image.new("RGBA", (int(width), int(height)), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    # TextClipと同じく、横は中央寄せ、縦は中央寄せ（高さ未指定なら上端から）にする
+    x0 = (width - text_width) / 2 + stroke
+    y0 = (height - text_height) / 2 + ascent + stroke
+    # 縁取りを先に全文字分描いてから文字本体を描く（隣の文字の縁取りが本体に重ならないように）
+    if stroke and stroke_color:
+        for offset, char in zip(offsets, text):
+            draw.text(
+                (x0 + offset, y0), char, font=pil_font, fill=stroke_color,
+                stroke_width=stroke, stroke_fill=stroke_color, anchor="ls",
+            )
+    for offset, char in zip(offsets, text):
+        draw.text((x0 + offset, y0), char, font=pil_font, fill=color, anchor="ls")
+    clip = ImageClip(np.array(image), transparent=True)
+    if duration is not None:
+        clip = clip.with_duration(duration)
+    return clip
 
 
 def _text_bbox(clip) -> tuple[int, int, int, int]:

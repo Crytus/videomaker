@@ -148,6 +148,7 @@ video:
   output_file: dist/my_video.mp4   # 出力ファイル名（省略可）
   subtitle:
     font: assets/fonts/msgothic.ttc
+    letter_spacing: 0              # 字間(px)。字幕・テロップ共通。フォントの字間が詰まって見えるときに広げる（省略可）
     position: bottom               # top, bottom, none（none は字幕を出力しない）
     style:
       fill: "#FFFFFF"              # 文字色
@@ -409,6 +410,25 @@ video:
       stroke_width: 3       # 縁取りも太く
       padding: 32           # パディング
 ```
+
+#### 字間の調整
+
+フォントによっては文字と文字の間が詰まって見えることがあります（例: 中国語フォント `msyh.ttc`）。
+`letter_spacing` で字間をピクセル単位で広げられます（負の値で詰める）。
+
+```yaml
+video:
+  subtitle:
+    font: assets/fonts/msyh.ttc
+    letter_spacing: 6          # 字幕・テロップ共通の字間
+    style:
+      letter_spacing: 8        # 字幕だけ別の字間にする場合（省略可）
+  teletext:
+    style:
+      letter_spacing: 10       # テロップの字間（省略時は video.subtitle.letter_spacing）
+```
+
+優先順位は「シーンの `style.letter_spacing`」＞「`video.subtitle.style` / `video.teletext.style` の `letter_spacing`」＞「`video.subtitle.letter_spacing`」＞ 0 です。
 
 ### テロップの表示
 

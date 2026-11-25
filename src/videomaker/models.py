@@ -52,6 +52,9 @@ class SubtitleStyle(BaseModel):
     stroke: str | None = Field("#000000", description="縁取り色")
     stroke_width: int | None = Field(None, ge=0, description="縁取り幅(px)")
     font_size: int | None = Field(None, ge=1, description="文字サイズ")
+    letter_spacing: float | None = Field(
+        None, description="文字と文字の間に足す間隔(px)。負の値で詰める。未指定なら video.subtitle.letter_spacing"
+    )
     padding: int = Field(24, ge=0, description="文字周囲のパディング(px)")
     background: str | None = Field(
         None, description="背景色。#RRGGBB、半透明は #RRGGBBAA（例: #00000080）や色名も可"
@@ -97,6 +100,9 @@ class SubtitleConfig(BaseModel):
     )
     position: Literal["top", "bottom", "none"] = Field(
         "bottom", description="字幕の配置場所（none の場合は字幕を出力しない）"
+    )
+    letter_spacing: float = Field(
+        0, description="字幕・テロップ共通の字間(px)。フォントの字間が詰まって見えるときに広げる（style.letter_spacing が優先）"
     )
     style: SubtitleStyle = Field(default_factory=SubtitleStyle)
 
