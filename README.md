@@ -484,6 +484,7 @@ options:
 |---|---|---|
 | `font` | `null` | 字幕とテロップのフォント。見つからなければ `assets/fonts/<ファイル名>`、次に config の `default_font` を使用 |
 | `position` | `bottom` | `bottom`（画面下）、`top`（画面上）、`none`（字幕を出力しない） |
+| `letter_spacing` | `0` | 字幕とテロップ共通の字間（px）。フォントの字間が詰まって見えるときに広げる（負の値で詰める）。`style.letter_spacing` が優先（[字間の調整](#字間の調整)参照） |
 | `style` | | 字幕のスタイル（下記の `style` 参照） |
 
 #### `video.teletext`
@@ -521,10 +522,29 @@ scenes:
 | `stroke` | `"#000000"` | 縁取り色。`null` で縁取りなし |
 | `stroke_width` | `null` | 縁取り幅（px）。`null` なら config の値 |
 | `font_size` | `null` | 文字サイズ。`null` なら config の値 |
+| `letter_spacing` | `null` | 字間（px）。負の値で詰める。`null` なら `video.subtitle.letter_spacing` |
 | `padding` | `24` | 字幕の画面端からの余白（px）。字幕のみ有効 |
 | `background` | `null` | 文字の背景色。`"#RRGGBB"`、半透明は `"#RRGGBBAA"`（例: `"#00000080"` で50%の黒）、`red` などの色名も可。`null` なら config の `subtitle_background` / `teletext_background` |
 | `background_opacity` | `null` | 背景の不透明度（0.0＝透明〜1.0＝不透明）。`background` のアルファ値に掛け合わせる |
 | `background_padding` | `16` | 文字の周りに広げる背景の余白（px） |
+
+#### 字間の調整
+
+フォントによっては文字と文字の間が詰まって見えることがあります（例: 中国語フォント `msyh.ttc`）。`letter_spacing` で字間をピクセル単位で広げられます（負の値で詰める）。
+
+```yaml
+video:
+  subtitle:
+    font: assets/fonts/msyh.ttc
+    letter_spacing: 6          # 字幕・テロップ共通の字間
+    style:
+      letter_spacing: 8        # 字幕だけ別の字間にする場合（省略可）
+  teletext:
+    style:
+      letter_spacing: 10       # テロップの字間（省略時は video.subtitle.letter_spacing）
+```
+
+優先順位は「シーンの `style.letter_spacing`」＞「`video.subtitle.style` / `video.teletext.style` の `letter_spacing`」＞「`video.subtitle.letter_spacing`」＞ `0` です。`0` のときは従来どおりの描画になります。
 
 #### 文字の背景（読みにくいときに）
 
